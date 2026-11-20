@@ -147,7 +147,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
       <button id="addImage">Picture…</button>
       <button id="addBox">Box</button>
       <button id="addLine">Line</button>
-      <button id="addGallery" style="grid-column:1/-1" title="Backgrounds, frames and pictures ready to use">Gallery…</button>
+      <button id="addBarcode" title="A barcode that scans: the product's {barcode} number, or anything you type">Barcode</button>
+      <button id="addGallery" title="Backgrounds, frames and pictures ready to use">Gallery…</button>
     </div>
     <input type="file" id="imageFile" accept="image/*" hidden>
     <h2>Background</h2>
@@ -201,6 +202,11 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
       <label class="check"><input type="checkbox" id="optInvert"> Swap black and white</label>
       <div class="muted" style="font-size:12px;margin:4px 0 8px">Use these if the first picture comes out upside down or as a negative. They only change what is sent, not your design.</div>
       <button id="btnTest">Send test pattern</button>
+    </details>
+
+    <details id="invBox">
+      <summary>Inventory (products)</summary>
+      <div id="invPanel"></div>
     </details>
 
     <details id="lockBox">
@@ -452,6 +458,11 @@ function scaleLayers(layers, fw, fh, tw, th) {
       while (!tf && l.size > 6 && (m2.w > tw || m2.h > th)) { l.size = Math.max(6, R(l.size * 0.9)); m2 = textMetrics(l); }
       l.x = R(Math.max(0, Math.min(tw - m2.w, cx - m2.w / 2))); l.y = R(Math.max(0, Math.min(th - m2.h, cy - m2.h / 2))); continue;
     }
+    if (l.type === "barcode") { // bars keep their width so it still scans; just keep its place
+      const r0 = baseRect(l), rb = bounds(l), cx = (r0.x + r0.w / 2) * sx, cy = (r0.y + r0.h / 2) * sy; // turned: keep the turned box on screen
+      const ncx = Math.max(rb.w / 2, Math.min(tw - rb.w / 2, cx)), ncy = Math.max(rb.h / 2, Math.min(th - rb.h / 2, cy));
+      l.x = R(l.x + ncx - (r0.x + r0.w / 2)); l.y = R(l.y + ncy - (r0.y + r0.h / 2)); continue;
+    }
     const full = l.type === "image" && l.x <= 0 && l.y <= 0 && l.x + l.w >= fw && l.y + l.h >= fh;
     if (full || l.type === "box") { l.x = R(l.x * sx); l.y = R(l.y * sy); l.w = Math.max(1, R(l.w * sx)); l.h = Math.max(1, R(l.h * sy)); }
     else {
@@ -498,7 +509,7 @@ function getImage(src) {
 function fontCss(l) { return `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.size}px "${l.font}", sans-serif`; }
 // ---- fields: {name}, {battery} ... filled in for each tag when sending
 const FIELDS = [
-  ["name", "Tag name", "ESL_8079EB"], ["battery", "Battery %", "87%"], ["volts", "Battery volts", "2.95 V"],
+  ["name", "Tag name (or the product's name)", "ESL_8079EB"], ["tag_name", "Tag name (always)", "ESL_8079EB"], ["battery", "Battery %", "87%"], ["volts", "Battery volts", "2.95 V"],
   ["time", "Time", "14:05"], ["time24", "Time, 24-hour (like the tag clock)", "14:05"], ["date", "Date", "17 Nov 2026"], ["day", "Day of week", "Tuesday"],
   ["short_date", "Short date", "17/11"], ["signal", "Bluetooth signal", "-52 dBm"], ["mac", "MAC address", "A0:40:FA:80:79:EB"],
 ];
@@ -515,15 +526,17 @@ function fieldValues(tag, when) {
   v.day = now.toLocaleDateString([], { weekday: "long" });
   v.short_date = now.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
   if (tag) {
-    v.name = tag.name;
+    v.name = v.tag_name = tag.name;
     v.battery = tag.battery != null ? tag.battery + "%" : "?%";
     v.volts = tag.battery_mv ? (tag.battery_mv / 1000).toFixed(2) + " V" : "? V";
     v.signal = tag.rssi != null ? tag.rssi + " dBm" : "?";
     v.mac = tag.mac || "?";
   }
+  if (inv.items && inv.items.length) productValues(productFor(tag), v, !!when);
   for (const f of custom.fields) {
     const val = tag && custom.values[tag.name] ? custom.values[tag.name][f] : undefined;
-    v[f] = val != null && val !== "" ? val : (when ? "" : `‹${f}›`); // preview shows a placeholder, sending leaves it empty
+    if (val != null && val !== "") v[f] = val; // a value typed for this tag wins over the product list
+    else if (!(f in v)) v[f] = when ? "" : `‹${f}›`; // preview shows a placeholder, sending leaves it empty
   }
   return v;
 }
@@ -537,6 +550,162 @@ function fillFields(text) {
   return String(text || "").replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
 }
 function textLines(l) { return fillFields(l.text).split("\n"); }
+// ---- inventory: product data (CSV, Excel, JSON or a web link) for {title} {price} {barcode} ... per tag
+let inv = { columns: [], items: [], key: "", tag_column: "", map: {}, currency: "$", links: {}, source: null, refresh_before_send: true };
+const INV_FIELDS = [["title", "Title"], ["name", "Name"], ["price", "Price"], ["summary", "Summary"], ["barcode", "Barcode number"]];
+const INV_SAMPLE = { title: "Fresh Coffee Beans", name: "Coffee Beans", price: "$8.99", summary: "250 g · Medium roast", barcode: "012345678905" };
+let invIndex = null; // key value -> item, tag column value -> item
+function slugField(c) { const s = String(c).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24); return /^[a-z]/.test(s) ? s : s ? "c_" + s.slice(0, 22) : ""; }
+function invColumnFields() { // every column as a field too: "Sale Price" -> {sale_price}
+  const out = [], seen = new Set([...BUILTIN, ...INV_FIELDS.map((f) => f[0]), "tag_name"]);
+  for (const c of inv.columns || []) { const f = slugField(c); if (f && !seen.has(f)) { seen.add(f); out.push([f, c]); } }
+  return out;
+}
+function buildInvIndex() {
+  invIndex = { byKey: new Map(), byTag: new Map() };
+  for (const it of inv.items || []) {
+    const k = String(it[inv.key] ?? "").trim(); if (k && !invIndex.byKey.has(k)) invIndex.byKey.set(k, it);
+    if (inv.tag_column) for (const t of String(it[inv.tag_column] ?? "").split(/[,;\s]+/)) if (t) invIndex.byTag.set(t.toUpperCase(), it);
+  }
+}
+// the product a tag shows: picked by hand in the app, else named in the list's tag column
+function productFor(tag) {
+  if (!tag || !inv.items || !inv.items.length) return null;
+  if (!invIndex) buildInvIndex();
+  const k = inv.links && inv.links[tag.name];
+  if (k) return invIndex.byKey.get(k) || null;
+  return invIndex.byTag.get(String(tag.name).toUpperCase()) || null;
+}
+function productLinkSource(tag) { return inv.links && inv.links[tag.name] ? "app" : productFor(tag) ? "list" : null; }
+function formatPrice(v) {
+  const s = String(v ?? "").trim(); if (!s) return "";
+  const body = s.replace(/^[^\d-]*/, "").replace(/[^\d]*$/, ""); // drop a sign like $ or € and anything after the number
+  if (/[a-z]/i.test(s.replace(/^[a-z]{3}\s*/i, "").replace(/\s*[a-z]{3}$/i, "")) || !/^-?[\d.,\s\u00a0']+$/.test(body)) return s; // "2 for $5": keep as written
+  // the last . or , followed by 1-2 digits is the decimal mark (8.99, 8,99, 1.234,56); other . , space ' group thousands
+  const m = body.match(/^(.*?)([.,])(\d{1,2})$/);
+  const whole = (m ? m[1] : body).replace(/[.,\s\u00a0']/g, ""), frac = m ? m[3] : "";
+  const n = Number(whole + (frac ? "." + frac : ""));
+  if (!isFinite(n) || whole === "-" ) return s;
+  const comma = m ? m[2] === "," : false;
+  const out = n.toFixed(2);
+  return (inv.currency ?? "$") + (comma ? out.replace(".", ",") : out);
+}
+function productValues(p, v, sending) {
+  const cols = invColumnFields();
+  for (const [f, c] of cols) v[f] = p ? (p[c] ?? "") : (sending ? "" : `‹${f}›`);
+  for (const [f] of INV_FIELDS) {
+    const c = inv.map && inv.map[f];
+    if (f === "name" && (!c || !p)) continue; // {name} stays the tag's name unless the tag shows a product with a name column
+    if (!c) { v[f] = sending ? "" : `‹${f}›`; continue; }
+    const raw = p ? (p[c] ?? "") : null;
+    v[f] = raw == null ? (sending ? "" : (INV_SAMPLE[f] || `‹${f}›`)) : f === "price" ? formatPrice(raw) : String(raw);
+  }
+}
+
+// ---- barcodes: UPC-A, EAN-13 and Code 128, drawn bar by bar on whole pixels
+const EAN_L = ["0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111", "0111011", "0110111", "0001011"];
+const EAN_R = EAN_L.map((s) => s.replace(/./g, (b) => (b === "1" ? "0" : "1")));
+const EAN_G = EAN_R.map((s) => s.split("").reverse().join(""));
+const EAN_PARITY = ["LLLLLL", "LLGLGG", "LLGGLG", "LLGGGL", "LGLLGG", "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"];
+function eanCheck(d12) { let s = 0; for (let i = 0; i < 12; i++) s += +d12[i] * (i % 2 ? 3 : 1); return String((10 - (s % 10)) % 10); }
+function encodeEAN13(digits) { // 12 or 13 digits
+  const d12 = digits.slice(0, 12), full = d12 + eanCheck(d12);
+  if (digits.length === 13 && digits !== full) return { error: "The last digit (check digit) is wrong; it should be " + full[12] + "." };
+  let s = "101";
+  const par = EAN_PARITY[+full[0]];
+  for (let i = 1; i <= 6; i++) s += (par[i - 1] === "L" ? EAN_L : EAN_G)[+full[i]];
+  s += "01010";
+  for (let i = 7; i <= 12; i++) s += EAN_R[+full[i]];
+  s += "101";
+  return { bits: s, text: full };
+}
+function encodeUPCA(digits) { // 11 or 12 digits
+  const r = encodeEAN13("0" + digits);
+  if (r.error) return r;
+  return { bits: r.bits, text: r.text.slice(1) };
+}
+const C128 = ["212222","222122","222221","121223","121322","131222","122213","122312","132212","221213","221312","231212","112232","122132","122231","113222","123122","123221","223211","221132","221231","213212","223112","312131","311222","321122","321221","312212","322112","322211","212123","212321","232121","111323","131123","131321","112313","132113","132311","211313","231113","231311","112133","112331","132131","113123","113321","133121","313121","211331","231131","213113","213311","213131","311123","311321","331121","312113","312311","332111","314111","221411","431111","111224","111422","121124","121421","141122","141221","112214","112412","122114","122411","142112","142211","241211","221114","413111","241112","134111","111242","121142","121241","114212","124112","124211","411212","421112","421211","212141","214121","412121","111143","111341","131141","114113","114311","411113","411311","113141","114131","311141","411131","211412","211214","211232","2331112"];
+function encodeCode128(text) {
+  if (!text.length) return { error: "Nothing to encode." };
+  for (const ch of text) { const c = ch.charCodeAt(0); if (c < 32 || c > 126) return { error: "Code 128 here takes plain letters, numbers and symbols only." }; }
+  const codes = [], digitRun = (i) => { let n = 0; while (i + n < text.length && /\d/.test(text[i + n])) n++; return n; };
+  let set = digitRun(0) >= 4 && digitRun(0) % 2 === 0 || (digitRun(0) === text.length && text.length >= 2 && text.length % 2 === 0) ? "C" : "B";
+  codes.push(set === "C" ? 105 : 104);
+  let i = 0;
+  while (i < text.length) {
+    if (set === "C") {
+      if (digitRun(i) >= 2) { codes.push(+text.substr(i, 2)); i += 2; continue; }
+      codes.push(100); set = "B"; continue;
+    }
+    const run = digitRun(i);
+    if (run >= 6 && run % 2 === 0 || (run >= 4 && i + run === text.length && run % 2 === 0)) { codes.push(99); set = "C"; continue; }
+    codes.push(text.charCodeAt(i) - 32); i++;
+  }
+  let sum = codes[0]; for (let k = 1; k < codes.length; k++) sum += codes[k] * k;
+  codes.push(sum % 103, 106);
+  let s = "";
+  for (const c of codes) [...C128[c]].forEach((w, k) => { s += (k % 2 ? "0" : "1").repeat(+w); });
+  return { bits: s, text };
+}
+function encodeBarcode(value, format) {
+  const v = String(value || "").trim();
+  if (!v) return { error: "No barcode number for this tag's product." };
+  const digits = /^\d+$/.test(v);
+  // auto: 11-12 digits = UPC-A (US shops), 13 = EAN-13, anything else = Code 128
+  if (format === "auto" && digits && v.length === 11) {
+    // usually a UPC whose leading 0 was lost (stored as a number in Excel or the database): put it back if it then checks out
+    if (eanCheck("00" + v.slice(0, 10)) === v[10]) return encodeUPCA("0" + v);
+    return { error: `11 digits. If it is a UPC that lost its leading 0, it doesn't check out; choose Kind UPC-A to add a check digit to ${v}.` };
+  }
+  if (format === "upca" || (format === "auto" && digits && (v.length === 11 || v.length === 12))) {
+    return digits && (v.length === 11 || v.length === 12) ? encodeUPCA(v) : { error: "UPC-A needs 11 or 12 digits." };
+  }
+  if (format === "ean13" || (format === "auto" && digits && v.length === 13)) {
+    return digits && (v.length === 12 || v.length === 13) ? encodeEAN13(v) : { error: "EAN-13 needs 12 or 13 digits." };
+  }
+  return encodeCode128(v);
+}
+const barcodeCache = new Map();
+// what a barcode layer draws right now: its bars, the numbers under them, and whether it is a stand-in
+function barcodeOf(l) {
+  let v = fillFields(l.text ?? "{barcode}").trim(), sample = false;
+  if (!fieldCtx && /[‹{]/.test(v)) { v = l.format === "code128" ? "ABC-12345" : l.format === "ean13" ? "4006381333931" : "012345678905"; sample = true; }
+  const key = (l.format || "auto") + "|" + v;
+  let r = barcodeCache.get(key);
+  if (!r) { r = encodeBarcode(v, l.format || "auto"); if (barcodeCache.size > 500) barcodeCache.clear(); barcodeCache.set(key, r); }
+  return { ...r, sample, value: v };
+}
+const BARCODE_FONT = "Dialog_plain_16"; // for letters; digits use the small pixel font below so 12 of them fit under a UPC
+const DIGITS_5X7 = ["01110100011001110101110011000101110", "00100011000010000100001000010001110", "01110100010000100010001000100011111", "11111000100010000010000011000101110", "00010001100101010010111110001000010", "11111100001111000001000011000101110", "00110010001000011110100011000101110", "11111000010001000100010000100001000", "01110100011000101110100011000101110", "01110100011000101111000010001001100"];
+function barcodeDigitScale(b, m) { const n = b.text.length; return Math.max(1, Math.min(m, Math.floor((b.bits.length * m + 1) / (n * 6)))); }
+function barcodeTextHeight(l, b, m) {
+  if (!l.showText || !b.bits) return 0;
+  if (/^\d+$/.test(b.text)) return 7 * barcodeDigitScale(b, m) + 2;
+  const f = tagFonts[BARCODE_FONT]; return f ? f.ascent + f.descent + 1 : 15;
+}
+function barcodeSize(l) {
+  const b = barcodeOf(l), m = Math.max(1, Math.round(+l.module || 1));
+  const padX = l.backing ? 6 * m : 0, padY = l.backing ? 2 : 0; // white box with a quiet zone, for dark backgrounds
+  return { b, m, padX, padY, w: b.bits ? b.bits.length * m : 60, h: Math.max(4, Math.round(+l.h || 40)) + barcodeTextHeight(l, b, m) };
+}
+function paintBarcode(c, l) {
+  const { b, m } = barcodeSize(l), barH = Math.max(4, Math.round(+l.h || 40)), x0 = Math.round(l.x), y0 = Math.round(l.y);
+  if (!b.bits) { // can't encode: a crossed box so it is easy to spot (nothing is drawn when sending)
+    if (fieldCtx) return;
+    c.lineWidth = 1; c.strokeRect(x0 + 0.5, y0 + 0.5, 59, barH - 1); c.beginPath(); c.moveTo(x0, y0); c.lineTo(x0 + 60, y0 + barH); c.moveTo(x0 + 60, y0); c.lineTo(x0, y0 + barH); c.stroke();
+    return;
+  }
+  for (let i = 0; i < b.bits.length; i++) if (b.bits[i] === "1") c.fillRect(x0 + i * m, y0, m, barH);
+  if (l.showText) {
+    const f = tagFonts[BARCODE_FONT], s = b.text, w = b.bits.length * m;
+    if (/^\d+$/.test(s)) {
+      const k = barcodeDigitScale(b, m), tw = s.length * 6 * k - k, tx = x0 + Math.floor((w - tw) / 2), ty = y0 + barH + 2;
+      [...s].forEach((d, i) => { const g = DIGITS_5X7[+d]; for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) if (g[r * 5 + q] === "1") c.fillRect(tx + (i * 6 + q) * k, ty + r * k, k, k); });
+    } else if (f) drawTagLine(c, f, s, x0 + Math.floor((w - tagLineWidth(f, s, 1)) / 2), y0 + barH + 1 + f.ascent, 1);
+    else { c.font = "12px sans-serif"; c.textBaseline = "top"; c.textAlign = "center"; c.fillText(s, x0 + w / 2, y0 + barH + 1); }
+  }
+}
+
 function textMetrics(l) {
   const tf = tagFontOf(l);
   if (tf) {
@@ -554,6 +723,7 @@ function rotOf(l) { return l.type === "line" ? 0 : ((+l.rotate || 0) % 360); }
 // the unrotated rectangle; rotation turns it about its centre
 function baseRect(l) {
   if (l.type === "text") { const m = textMetrics(l); return { x: l.x, y: l.y, w: Math.ceil(m.w), h: Math.ceil(m.h) }; }
+  if (l.type === "barcode") { const z = barcodeSize(l), px = z.padX, py = z.padY; return { x: l.x - px, y: l.y - py, w: z.w + 2 * px, h: z.h + 2 * py }; }
   return { x: l.x, y: l.y, w: l.w, h: l.h };
 }
 function rotatedBox(r, deg) {
@@ -720,6 +890,10 @@ function renderBitsNow(d) {
         const o = (l.thickness || 1) % 2 ? 0.5 : 0;
         c.moveTo(l.x + o, l.y + o); c.lineTo(l.x2 + o, l.y2 + o); c.stroke();
       }, ci(l.color || "black"));
+    } else if (l.type === "barcode") {
+      const br = baseRect(l);
+      if (l.backing && (barcodeOf(l).bits || !fieldCtx)) paintVector(bits, (c) => { withRotation(c, l, br); c.fillRect(br.x, br.y, br.w, br.h); }, ci(l.color === "white" ? "black" : "white"));
+      paintVector(bits, (c) => { withRotation(c, l, br); c.fillStyle = "#000"; c.strokeStyle = "#000"; paintBarcode(c, l); }, ci(l.color || "black"));
     } else if (l.type === "image") paintImage(bits, l);
   }
   return bits;
@@ -880,7 +1054,7 @@ $("stage").addEventListener("pointerdown", (e) => {
   const p = stagePoint(e);
   if (e.target === $("handle")) {
     const l = selected();
-    drag = { mode: "resize", l, p0: p, orig: { ...l }, b0: bounds(l) };
+    drag = { mode: "resize", l, p0: p, orig: { ...l }, b0: bounds(l), z0: l.type === "barcode" ? barcodeSize(l) : null };
   } else {
     const l = hit(p.x, p.y);
     select(l ? l.id : null);
@@ -903,6 +1077,11 @@ $("stage").addEventListener("pointermove", (e) => {
     if (e.shiftKey) { if (Math.abs(l.x2 - l.x) > Math.abs(l.y2 - l.y)) l.y2 = l.y; else l.x2 = l.x; }
   } else if (l.type === "text") {
     const s = (drag.b0.h + dy) / drag.b0.h; l.size = Math.max(4, Math.round(o.size * s));
+  } else if (l.type === "barcode") { // taller or shorter bars; wider = thicker bars (whole pixels only)
+    const a = rotOf(l) * Math.PI / 180, ldx = dx * Math.cos(a) + dy * Math.sin(a), ldy = -dx * Math.sin(a) + dy * Math.cos(a); // along the bars, as turned
+    l.h = Math.max(8, Math.round(o.h + ldy));
+    const z0 = drag.z0, mods = z0.w / z0.m;
+    l.module = Math.max(1, Math.min(6, Math.round((z0.w + ldx) / mods)));
   } else {
     l.w = Math.max(2, o.w + dx); l.h = Math.max(2, o.h + dy);
     if (snap && !rotOf(l)) { // right and bottom edges onto the grid
@@ -956,6 +1135,7 @@ function labelOf(l) {
   if (l.type === "text") return "T  " + (String(l.text).split("\n")[0] || "(empty)");
   if (l.type === "image") return "▧  " + (l.name || "Picture");
   if (l.type === "box") return "▭  Box";
+  if (l.type === "barcode") return "▥  Barcode " + (l.text || "");
   return "╱  Line";
 }
 function renderLayers() {
@@ -1006,6 +1186,7 @@ function newTextLayer() {
 $("addText").onclick = () => addLayer(newTextLayer());
 $("addBox").onclick = () => addLayer({ type: "box", x: 20, y: 20, w: 100, h: 50, fill: "none", border: 2, borderColor: design.bg === "black" ? "white" : "black", radius: 0 });
 $("addLine").onclick = () => addLayer({ type: "line", x: 10, y: 61, x2: 240, y2: 61, thickness: 2, color: design.bg === "black" ? "white" : "black" });
+$("addBarcode").onclick = () => addLayer({ type: "barcode", text: "{barcode}", format: "auto", module: 2, h: 40, showText: true, color: "black", backing: design.bg === "black", x: Math.max(0, Math.round((W - 190) / 2)), y: Math.max(0, Math.round((H - 57) / 2)) });
 $("addImage").onclick = () => $("imageFile").click();
 $("imageFile").onchange = (e) => { const f = e.target.files[0]; if (f) addImageFile(f); e.target.value = ""; };
 function addImageFile(file) {
@@ -1240,7 +1421,7 @@ function renderProps(valuesOnly) {
     return;
   }
   p.innerHTML = "";
-  $("propsTitle").textContent = l ? ({ text: "Text", image: "Picture", box: "Box", line: "Line" })[l.type] : "Selected";
+  $("propsTitle").textContent = l ? ({ text: "Text", image: "Picture", box: "Box", line: "Line", barcode: "Barcode" })[l.type] : "Selected";
   if (!l) { p.appendChild(el(`<div class="muted">Click something on the tag to change it, or add text or a picture on the left.</div>`)); return; }
   if (l.type === "text") {
     p.appendChild(el(`<label for="textBox" style="display:block;margin-bottom:4px">What it says (type here; Return starts a new line)</label>`));
@@ -1252,6 +1433,11 @@ function renderProps(valuesOnly) {
     const vals = fieldValues(previewTag());
     const g1 = document.createElement("optgroup"); g1.label = "About each tag"; fs.appendChild(g1);
     for (const [k, label] of FIELDS) { const o = document.createElement("option"); o.value = k; o.textContent = `${label} (${vals[k]})`; g1.appendChild(o); }
+    if (inv.items && inv.items.length) {
+      const g3 = document.createElement("optgroup"); g3.label = "From your products (Inventory)"; fs.appendChild(g3);
+      for (const [k, label] of INV_FIELDS) if (inv.map[k]) { const o = document.createElement("option"); o.value = k; o.textContent = `${label} (${vals[k]})`; g3.appendChild(o); }
+      for (const [k, c] of invColumnFields()) { const o = document.createElement("option"); o.value = k; o.textContent = `${c} (${String(vals[k]).slice(0, 30)})`; g3.appendChild(o); }
+    }
     const g2 = document.createElement("optgroup"); g2.label = "Your own fields (set per tag under Send to tags)"; fs.appendChild(g2);
     for (const f of custom.fields) { const o = document.createElement("option"); o.value = f; o.textContent = `{${f}} (${vals[f]})`; g2.appendChild(o); }
     { const o = document.createElement("option"); o.value = "__new"; o.textContent = "New field…"; g2.appendChild(o); }
@@ -1324,6 +1510,22 @@ function renderProps(valuesOnly) {
     p.appendChild(seg("Border", "borderColor", l, colourChoices()));
     p.appendChild(num("Corners", "radius", l, { min: 0 }));
   }
+  if (l.type === "barcode") {
+    const r = el(`<div class="row"><label>Number</label><input type="text" style="flex:1;min-width:0"></div>`);
+    const inp = r.querySelector("input"); inp.value = l.text ?? "";
+    inp.placeholder = "{barcode} or digits"; inp.oninput = () => { l.text = inp.value; draw(); renderLayers(); }; inp.onchange = () => { commit(); refreshAll(); };
+    p.appendChild(r);
+    const z = barcodeSize(l), b = z.b;
+    const msg = b.error ? `Can't make a barcode from "${b.value}": ${b.error}`
+      : `${b.sample ? "Showing a sample (" + (inv.items && inv.items.length ? "no barcode for the previewed tag's product" : "load your products under Inventory") + "). " : ""}${b.bits.length} bars × ${z.m} px = ${z.w} px wide${z.w > W ? ". Wider than the screen: use thinner bars or Code 128 with fewer letters." : "."} Keep a little white space either side so scanners find it.`;
+    p.appendChild(el(`<div class="muted" style="font-size:12px;margin:-2px 0 8px"></div>`)).textContent = "Use {barcode} for each tag's product, another {field}, or type the number. " + msg;
+    p.appendChild(seg("Kind", "format", l, [["auto", "Auto"], ["upca", "UPC-A"], ["ean13", "EAN-13"], ["code128", "Code 128"]]));
+    p.appendChild(num("Bar width", "module", l, { min: 1 }));
+    p.appendChild(num("Height", "h", l, { min: 8 }));
+    p.appendChild(check("Show the numbers under it", "showText", l));
+    p.appendChild(check("White box behind it (needed on a dark background: scanners want dark bars on light)", "backing", l));
+    p.appendChild(seg("Colour", "color", l, colourChoices()));
+  }
   if (l.type === "line") {
     p.appendChild(num("Thickness", "thickness", l, { min: 1 }));
     p.appendChild(seg("Colour", "color", l, colourChoices()));
@@ -1358,18 +1560,25 @@ const TEMPLATES = {
     { type: "text", text: "$8.99", font: lastFont(), size: 54, bold: true, align: "right", color: "white", lineHeight: 1, x: 0, y: 59, _right: 238 },
     { type: "box", x: 112, y: 56, w: 134, h: 62, fill: "black", border: 0, borderColor: "black", radius: 8 },
   ] }),
+  "Product label (from Inventory)": () => ({ bg: "white", layers: [
+    { type: "text", text: "{title}", font: lastFont(), size: 18, bold: true, align: "left", color: "black", lineHeight: 1.1, x: 8, y: 6 },
+    { type: "text", text: "{summary}", font: lastFont(), size: 13, bold: false, align: "left", color: "black", lineHeight: 1.1, x: 8, y: 28 },
+    { type: "line", x: 8, y: 47, x2: 241, y2: 47, thickness: 1, color: "black" },
+    { type: "barcode", text: "{barcode}", format: "auto", module: 1, h: 40, showText: true, color: "black", x: 8, y: 56 },
+    { type: "text", text: "{price}", font: lastFont(), size: 40, bold: true, align: "right", color: "black", lineHeight: 1, x: 0, y: 64, _right: 242 },
+  ] }),
   "Tag info": () => ({ bg: "white", layers: [
-    { type: "text", text: "{name}", font: lastFont(), size: 30, bold: true, align: "left", color: "black", lineHeight: 1, x: 8, y: 8 },
+    { type: "text", text: "{tag_name}", font: lastFont(), size: 30, bold: true, align: "left", color: "black", lineHeight: 1, x: 8, y: 8 },
     { type: "line", x: 8, y: 46, x2: 241, y2: 46, thickness: 2, color: "black" },
     { type: "text", text: "Battery {battery}  ({volts})\nSignal {signal}\nUpdated {day} {time}", font: lastFont(), size: 15, bold: false, align: "left", color: "black", lineHeight: 1.25, x: 8, y: 56 },
   ] }),
   "Clock style": () => ({ bg: "white", layers: [
     { type: "text", text: "{day}, {date}", font: lastFont(), size: 16, bold: false, align: "center", color: "black", lineHeight: 1, x: 0, y: 8, _center: true },
     { type: "text", text: "{time}", font: lastFont(), size: 56, bold: true, align: "center", color: "black", lineHeight: 1, x: 0, y: 32, _center: true },
-    { type: "text", text: "{name} · battery {battery}", font: lastFont(), size: 13, bold: false, align: "center", color: "black", lineHeight: 1, x: 0, y: 100, _center: true },
+    { type: "text", text: "{tag_name} · battery {battery}", font: lastFont(), size: 13, bold: false, align: "center", color: "black", lineHeight: 1, x: 0, y: 100, _center: true },
   ] }),
   "Tag's own clock look": () => ({ bg: "white", layers: [
-    { type: "text", text: "{name}", font: "tag:Dialog_plain_16", size: 16, bold: false, italic: false, align: "left", color: "black", lineHeight: 1, x: 1, y: 4 },
+    { type: "text", text: "{tag_name}", font: "tag:Dialog_plain_16", size: 16, bold: false, italic: false, align: "left", color: "black", lineHeight: 1, x: 1, y: 4 },
     { type: "text", text: "{time24}", font: "tag:DSEG14_Classic_Mini_Regular_40", size: 40, bold: false, italic: false, align: "center", color: "black", lineHeight: 1, x: 0, y: 25, _center: true },
     { type: "text", text: "Battery {volts}", font: "tag:Dialog_plain_16", size: 16, bold: false, italic: false, align: "left", color: "black", lineHeight: 1, x: 10, y: 107 },
   ] }),
@@ -1454,11 +1663,31 @@ function tagProfile(t) {
   return pr.bpc ? pr : profileById(DEFAULT_PROFILE);
 }
 // the design laid out for one tag's screen (resized when its screen differs from the canvas)
+// does the design show any product field? (then tags without a product get a note when sending)
+function designUsesProducts() {
+  const names = new Set([...INV_FIELDS.map((f) => f[0]).filter((f) => f !== "name" || inv.map.name), ...invColumnFields().map((f) => f[0])]);
+  return design.layers.some((l) => !l.hidden && (l.type === "text" || l.type === "barcode") && [...String(l.text ?? "").matchAll(/\{(\w+)\}/g)].some((m) => names.has(m[1])));
+}
+// Text with fields that is aligned right or centre keeps its right edge (or middle) where it is in the preview,
+// so a longer price on another tag grows to the left instead of running off the screen.
+function anchorFieldText(layers, ctx) {
+  const saved = fieldCtx;
+  try {
+    for (const l of layers) {
+      if (l.type !== "text" || l.hidden || rotOf(l) || !(l.align === "right" || l.align === "center") || !/\{\w+\}/.test(l.text)) continue;
+      fieldCtx = null; const w0 = textMetrics(l).w;
+      fieldCtx = ctx; const w1 = textMetrics(l).w;
+      l.x = Math.round(l.x + (l.align === "right" ? w0 - w1 : (w0 - w1) / 2));
+    }
+  } finally { fieldCtx = saved; }
+}
 function bitsForTag(t, d, ctx) {
   const pr = tagProfile(t);
-  if (pr.w === W && pr.h === H) return withProfile(pr, () => renderBits(d, ctx));
   const copy = JSON.parse(JSON.stringify(d));
-  scaleLayers(copy.layers, W, H, pr.w, pr.h);
+  anchorFieldText(copy.layers, ctx);
+  if (pr.w === W && pr.h === H) return withProfile(pr, () => renderBits(copy, ctx));
+  const saved = fieldCtx; fieldCtx = ctx; // lay it out with this tag's own values
+  try { scaleLayers(copy.layers, W, H, pr.w, pr.h); } finally { fieldCtx = saved; }
   return withProfile(pr, () => renderBits(copy, ctx));
 }
 async function saveTagScreens() {
@@ -1477,7 +1706,7 @@ function followPicked(quiet) {
 let lastTagKey = null;
 function renderTags() {
   const key = tags.map((t) => t.id + t.name).join(",");
-  if (key !== lastTagKey) { lastTagKey = key; renderDetails(); renderPreviewAs(); }
+  if (key !== lastTagKey) { lastTagKey = key; renderDetails(); renderPreviewAs(); renderInventory(); }
   const ul = $("tags"); ul.innerHTML = "";
   if (!tags.length) ul.appendChild(el(`<li class="muted" style="font-size:12px">${busy === "scan" ? "Looking for tags (up to 25 seconds)…" : "No tags yet. Press Scan for tags. Each tag needs power and should be within a few metres."}</li>`));
   for (const t of tags) {
@@ -1497,6 +1726,7 @@ function renderTags() {
       meta.appendChild(ss);
     }
     if (t.kind === "port") meta.appendChild(lockView(t));
+    { const pp = productFor(t); if (pp) { const sp = el(`<span title="The product this tag shows (Inventory)"></span>`); sp.textContent = "▣ " + invTitle(pp).slice(0, 28); meta.appendChild(sp); } }
     if (tagDesigns[t.name]) {
       const b = el(`<button class="small" title="Open the text, pictures, boxes and lines last sent to this tag, as editable layers">Edit layers</button>`);
       b.disabled = !!busy;
@@ -1681,7 +1911,7 @@ function renderPreviewAs() {
 $("previewAs").onchange = () => { previewId = $("previewAs").value; draw(); renderProps(); };
 function chosen() { return tags.filter((t) => usable(t) && picked.has(t.id)).map((t) => t.id); }
 function updateButtons() {
-  if (design.layers.some((l) => l.type === "text" && /\{\w+\}/.test(l.text))) draw();
+  if (design.layers.some((l) => (l.type === "text" || l.type === "barcode") && /\{\w+\}/.test(l.text))) { draw(); if (selected() && selected().type === "barcode") renderProps(); }
   const n = chosen().length;
   $("btnSend").disabled = !!busy || !n; $("btnClock").disabled = !!busy || !n; $("btnScan").disabled = !!busy; $("btnTest").disabled = !!busy || !n;
   $("btnSend").textContent = n > 1 ? `Send to ${n} tags` : "Send to selected";
@@ -1722,7 +1952,13 @@ async function runJob(path, body, label, ids, quiet) {
   } catch (e) { toast(label + " failed: " + e.message, 4000); }
   busy = false; renderTags();
 }
-$("btnSend").onclick = () => {
+$("btnSend").onclick = async () => {
+  if (inv.source && inv.source.kind === "url" && inv.refresh_before_send !== false && inv.items && inv.items.length) {
+    if (busy) return;
+    busy = "refresh"; updateButtons(); toast("Getting fresh product data…");
+    try { await invRefresh(true); } finally { busy = false; updateButtons(); }
+  }
+  const noProduct = (inv.items && inv.items.length && designUsesProducts()) ? chosen().map((id) => tags.find((t) => t.id === id)).filter((t) => t && !productFor(t)).map((t) => t.name) : [];
   const when = new Date(), buffers = {}, resized = [];
   for (const id of chosen()) {
     const t = tags.find((x) => x.id === id), pr = tagProfile(t);
@@ -1731,6 +1967,7 @@ $("btnSend").onclick = () => {
   }
   const notes = [];
   if (resized.length) notes.push(`Resized for the different screen on ${resized.join(", ")}.`);
+  if (noProduct.length) notes.push(`No product linked to ${noProduct.join(", ")}, so its product fields are empty.`);
   if (hasAccent() && lastBits && lastBits.includes(2)) notes.push(`${accentName()} parts show as black on the tags for now: the tag firmware can only show black and white yet.`);
   const low = chosen().map((id) => tags.find((t) => t.id === id)).filter((t) => t && typeof t.battery === "number" && t.battery < 20);
   if (low.length) notes.push(`Low battery on ${low.map((t) => `${t.name} (${t.battery}%)`).join(", ")}; it may need a retry.`);
@@ -1738,6 +1975,131 @@ $("btnSend").onclick = () => {
   runJob("/api/send", { buffers, design }, "Send", Object.keys(buffers));
 };
 $("btnClock").onclick = () => runJob("/api/clock", {}, "Clock");
+// ---- inventory panel: load a product list, say which column is which, link tags to products
+function invTitle(p) { if (!p) return ""; const c = inv.map.title || inv.map.name || inv.key; return String(p[c] ?? p[inv.key] ?? ""); }
+async function invPost(what, body) {
+  try {
+    inv = await api("/api/inventory/" + what, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  } catch (e) {
+    if (/^(not found|HTTP 404)$/.test(e.message)) throw new Error("Tag Designer is still running its older version. Close the Terminal window (or quit Tag Designer) and open it again.");
+    throw e;
+  }
+  invIndex = null; barcodeCache.clear();
+  renderInventory(); draw(); renderProps(); renderTags();
+  return inv;
+}
+async function loadInventory() { try { inv = await api("/api/inventory"); invIndex = null; } catch (e) {} renderInventory(); }
+async function invImportFile(f) {
+  if (f.size > 20 << 20) return toast("That file is larger than 20 MB.");
+  try {
+    const data = b64(new Uint8Array(await f.arrayBuffer()));
+    await invPost("import", { name: f.name, data });
+    toast(`${inv.items.length} products loaded from ${f.name}. Check the columns below.`, 4000);
+  } catch (e) { toast("Could not read that list: " + e.message, 6000); }
+}
+async function invImportLink() {
+  const url = await askText("Link to your product list: a Google Sheet (shared with anyone with the link), or a CSV or JSON link from your inventory system:", (inv.source && inv.source.url) || "");
+  if (!url) return;
+  try { await invPost("import", { url }); toast(`${inv.items.length} products loaded.`, 3000); }
+  catch (e) { toast("Could not load that link: " + e.message, 7000); }
+}
+async function invRefresh(quiet) {
+  try { await invPost("refresh"); if (!quiet) toast(`Product list updated: ${inv.items.length} products.`); return true; }
+  catch (e) { toast("Could not update the product list: " + e.message + (quiet ? " Using the copy you already have." : ""), 6000); return false; }
+}
+function invWhen(ts) { if (!ts) return ""; const d = new Date(ts * 1000); return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function renderInventory() {
+  const box = $("invPanel"); if (!box) return;
+  box.innerHTML = "";
+  const fi = el(`<input type="file" accept=".csv,.tsv,.txt,.json,.xlsx" hidden>`);
+  fi.onchange = () => { const f = fi.files[0]; fi.value = ""; if (f) invImportFile(f); };
+  box.appendChild(fi);
+  const has = inv.items && inv.items.length;
+  if (!has) {
+    box.appendChild(el(`<div class="muted" style="font-size:12px;margin-bottom:8px">Load your product list, then put {title}, {price}, {summary}, {name} or {barcode} in text (or add a Barcode) and link each tag to a product. Each tag then shows its own product. Works with a CSV, Excel (.xlsx) or JSON export from your inventory system, or a link to a Google Sheet or a CSV/JSON web address.</div>`));
+  } else {
+    const src = inv.source || {};
+    const st = el(`<div style="font-size:12px;margin-bottom:6px"></div>`);
+    st.textContent = `${inv.items.length} products from ${src.kind === "url" ? "a link" : src.name || "a file"}, updated ${invWhen(src.updated)}.`;
+    st.title = src.url || src.name || "";
+    box.appendChild(st);
+  }
+  const acts = el(`<div class="send-row" style="margin:0 0 8px"><button class="small">${has ? "Load another file…" : "Load file…"}</button><button class="small">${has && inv.source && inv.source.kind === "url" ? "Change link…" : "Use a link…"}</button></div>`);
+  const [bf, bl] = acts.querySelectorAll("button");
+  bf.onclick = () => fi.click(); bl.onclick = invImportLink;
+  if (has && inv.source && inv.source.kind === "url") { const b = el(`<button class="small">Refresh now</button>`); b.onclick = () => invRefresh(false); acts.appendChild(b); }
+  if (has) {
+    const b = el(`<button class="small">Remove</button>`);
+    b.onclick = async () => {
+      if (!confirm("Remove the product list and every tag's product link from this app? (Your inventory system is not touched.)")) return;
+      inv = await api("/api/inventory", { method: "DELETE" }); invIndex = null; renderInventory(); draw(); renderProps(); renderTags();
+    };
+    acts.appendChild(b);
+  }
+  box.appendChild(acts);
+  if (!has) return;
+  // which column is which
+  const colSel = (label, cur, onPick, none, tip) => {
+    const r = el(`<div class="row" style="margin-bottom:4px"><label style="width:92px"></label><select style="flex:1;min-width:0"></select></div>`);
+    r.querySelector("label").textContent = label; if (tip) r.title = tip;
+    const s = r.querySelector("select");
+    if (none) { const o = document.createElement("option"); o.value = ""; o.textContent = none; s.appendChild(o); }
+    for (const c of inv.columns) { const o = document.createElement("option"); o.value = c; const ex = inv.items[0] && inv.items[0][c]; o.textContent = c + (ex ? `  (${String(ex).slice(0, 24)})` : ""); s.appendChild(o); }
+    s.value = cur || ""; s.onchange = () => onPick(s.value).catch((e) => toast(e.message));
+    return r;
+  };
+  box.appendChild(el(`<div style="font-size:12px;color:var(--muted);margin:6px 0 4px">Which column is which</div>`));
+  box.appendChild(colSel("Product ID", inv.key, (v) => invPost("settings", { key: v }), null, "The column that names each product once, like SKU or item number"));
+  for (const [f, label] of INV_FIELDS) box.appendChild(colSel(`${label} {${f}}`, inv.map[f], (v) => invPost("settings", { map: { ...inv.map, [f]: v } }), "(not used)"));
+  box.appendChild(colSel("Tag column", inv.tag_column, (v) => invPost("settings", { tag_column: v }), "(none: link tags here)", "Optional: a column in your list holding the tag name (like ESL_A7E16A) each product is shown on"));
+  const cur = el(`<div class="row" style="margin-bottom:4px"><label style="width:92px">Price sign</label><input type="text" style="width:50px" maxlength="4"><span class="muted" style="font-size:12px"></span></div>`);
+  const ci_ = cur.querySelector("input"); ci_.value = inv.currency ?? "$";
+  cur.querySelector("span").textContent = "e.g. " + formatPrice("8.5");
+  ci_.onchange = () => invPost("settings", { currency: ci_.value }).catch((e) => toast(e.message));
+  box.appendChild(cur);
+  if (inv.source && inv.source.kind === "url") {
+    const rb = el(`<label class="check"><input type="checkbox"> Get fresh prices from the link before each send</label>`);
+    const c = rb.querySelector("input"); c.checked = inv.refresh_before_send !== false;
+    c.onchange = () => invPost("settings", { refresh_before_send: c.checked }).catch((e) => toast(e.message));
+    box.appendChild(rb);
+  }
+  const extra = invColumnFields().map(([f]) => "{" + f + "}");
+  const fl = el(`<div class="muted" style="font-size:12px;margin:4px 0 8px"></div>`);
+  fl.textContent = "Use in text: " + INV_FIELDS.filter(([f]) => inv.map[f]).map(([f]) => "{" + f + "}").join(" ") + (extra.length ? ". Every column works too: " + extra.slice(0, 12).join(" ") + (extra.length > 12 ? " …" : "") : "") + ". {tag_name} is always the tag's own name.";
+  box.appendChild(fl);
+  // tags -> products
+  box.appendChild(el(`<div style="font-size:12px;color:var(--muted);margin:6px 0 4px">Product on each tag</div>`));
+  let dl = $("invList");
+  if (!dl) { dl = el(`<datalist id="invList"></datalist>`); document.body.appendChild(dl); }
+  dl.innerHTML = "";
+  for (const it of inv.items.slice(0, 5000)) { const o = document.createElement("option"); o.value = String(it[inv.key] ?? ""); o.label = invTitle(it); dl.appendChild(o); }
+  const names = knownTagNames();
+  for (const n of Object.keys(inv.links || {})) if (!names.includes(n)) names.push(n);
+  if (!names.length) box.appendChild(el(`<div class="muted" style="font-size:12px">Scan for tags to link them to products.</div>`));
+  for (const n of names) {
+    const t = tags.find((x) => x.name === n) || { name: n };
+    const r = el(`<div style="margin-bottom:6px"><div class="row" style="margin-bottom:2px"><label style="width:92px;overflow:hidden;text-overflow:ellipsis"></label><input type="text" list="invList" style="flex:1;min-width:0" placeholder="product ID or name"></div><div class="muted" style="font-size:11px;margin-left:100px"></div></div>`);
+    r.querySelector("label").textContent = n; r.querySelector("label").title = n + (tags.some((x) => x.name === n) ? "" : " (not in range)");
+    const inp = r.querySelector("input"), note = r.querySelector(".muted");
+    const p = productFor(t), how = productLinkSource(t);
+    inp.value = how === "app" ? inv.links[n] : "";
+    if (how === "list") inp.placeholder = `${p[inv.key]} (from your list's tag column)`;
+    note.textContent = p ? invTitle(p) + (inv.map.price && p[inv.map.price] ? " · " + formatPrice(p[inv.map.price]) : "") : (inv.links && inv.links[n] ? `No product "${inv.links[n]}" in the list any more` : "No product: the product fields stay empty on this tag");
+    inp.onchange = () => {
+      const v = inp.value.trim(), links = { ...(inv.links || {}) };
+      if (!v) delete links[n];
+      else {
+        if (!invIndex) buildInvIndex();
+        let key = invIndex.byKey.has(v) ? v : null;
+        if (!key) { const hit = inv.items.find((it) => invTitle(it).toLowerCase() === v.toLowerCase()); if (hit) key = String(hit[inv.key]); }
+        if (!key) { toast(`No product "${v}" in the list.`); inp.value = how === "app" ? inv.links[n] : ""; return; }
+        links[n] = key;
+      }
+      invPost("settings", { links }).catch((e) => toast(e.message));
+    };
+    box.appendChild(r);
+  }
+}
 // ---- password lock
 let pwSet = false;
 async function loadPassword() {
@@ -1795,6 +2157,7 @@ async function checkStale() {
   if (!fonts.mac.length) fonts.mac = ["sans-serif", "serif", "monospace"];
   await Promise.all([loadCustomFonts(), loadTagFonts()]);
   try { custom = await api("/api/tagfields"); } catch (e) {}
+  try { inv = await api("/api/inventory"); invIndex = null; } catch (e) {}
   try { const r = await api("/api/tagscreens"); tagScreens = r && typeof r === "object" && !Array.isArray(r) ? r : {}; } catch (e) {}
   const saved = store.get("design", null);
   if (saved && saved.layers) setDesign(saved); else setDesign(placeTemplate(TEMPLATES["Name badge"]()));
@@ -1802,6 +2165,7 @@ async function checkStale() {
   try { tags = (await api("/api/tags")).tags; } catch (e) {}
   await loadTagDesigns();
   renderTags();
+  renderInventory();
   loadPassword();
   checkStale(); setInterval(checkStale, 60000);
   if (!tags.length) scanTags();

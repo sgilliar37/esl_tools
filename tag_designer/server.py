@@ -41,7 +41,7 @@ SCREENS = os.path.join(HERE, "screens.json")  # last known screen of each tag
 def _code_version():
     import hashlib
     h = hashlib.sha1()
-    for f in ("server.py", "index.html"):
+    for f in ("server.py", "index.html", "inventory.py"):
         try:
             with open(os.path.join(HERE, f), "rb") as fh:
                 h.update(fh.read())
@@ -53,6 +53,7 @@ def _code_version():
 CODE_VERSION = _code_version()  # a running copy with another version is out of date and gets replaced
 TAG_SCREENS = os.path.join(HERE, "tag_screens.json")  # {tag name: screen type id} chosen in the app
 MAX_PICTURE = 5000  # the ATC firmware's picture buffer (200x200 screens use all of it)
+INVENTORY_LOCK = threading.Lock()  # product list: one change at a time
 TAG_FIELDS = os.path.join(HERE, "tag_fields.json")  # your own fields ({room} ...) and each tag's values
 
 EPD_SERVICE = "13187b10-eba9-a3ba-044e-83d3217d9a38"
@@ -466,6 +467,9 @@ class Handler(BaseHTTPRequestHandler):
                 with open(path, "rb") as f:
                     data = f.read()
                 return self.reply(200, data, IMAGE_TYPES[os.path.splitext(name)[1].lower()])
+            if p == "/api/inventory":
+                import inventory
+                return self.reply(200, inventory.load())
             if p == "/api/tagfields":
                 try:
                     return self.reply(200, open(TAG_FIELDS, "rb").read())
@@ -586,6 +590,37 @@ class Handler(BaseHTTPRequestHandler):
                 with open(TAG_SCREENS, "w") as f:
                     json.dump(clean, f, indent=1)
                 return self.reply(200, clean)
+            if p.startswith("/api/inventory/"):
+                import inventory
+                what = p[len("/api/inventory/"):]
+                if what not in ("import", "refresh", "settings"):
+                    return self.reply(404, {"error": "not found"})
+                req = json.loads(self.body(40 << 20) or b"{}")
+                try:
+                    got = None  # (bytes, name, url): read first, so a slow download doesn't hold up other changes
+                    if what == "import" and req.get("url"):
+                        url = str(req["url"]).strip()
+                        got = inventory.fetch(url) + (url,)
+                    elif what == "import":
+                        data = base64.b64decode(req.get("data") or "")
+                        if len(data) > inventory.MAX_BYTES:
+                            raise ValueError("That file is larger than 20 MB.")
+                        got = (data, os.path.basename(str(req.get("name") or "list.csv"))[:80], None)
+                    elif what == "refresh":
+                        src = inventory.load().get("source") or {}
+                        if src.get("kind") != "url":
+                            raise ValueError("This list came from a file. Load the file again to update it.")
+                        got = inventory.fetch(src["url"]) + (src["url"],)
+                    with INVENTORY_LOCK:
+                        inv = inventory.load()
+                        if got:
+                            inventory.import_bytes(inv, got[0], got[1], url=got[2])
+                        else:
+                            inventory.clean_settings(inv, req)
+                        return self.reply(200, inventory.save(inv))
+                except Exception as e:  # a list that can't be read or reached: say why, keep the old one
+                    log("product list %s: %s" % (what, e))
+                    return self.reply(400, {"error": str(e) or type(e).__name__})
             if p == "/api/tagfields":
                 req = json.loads(self.body(1 << 20) or b"{}")
                 fields = [f for f in req.get("fields", []) if isinstance(f, str) and re.fullmatch(r"[A-Za-z]\w{0,23}", f)]
@@ -635,6 +670,10 @@ class Handler(BaseHTTPRequestHandler):
             if path and os.path.isfile(path):
                 os.remove(path)
                 return self.reply(200, {"deleted": name})
+        if p == "/api/inventory":
+            import inventory
+            with INVENTORY_LOCK:
+                return self.reply(200, inventory.save(inventory.empty()))
         if p.startswith("/api/designs/"):
             name = safe_name(p[len("/api/designs/"):])
             path = name and os.path.join(DESIGNS, name + ".json")

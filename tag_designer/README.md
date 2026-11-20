@@ -42,6 +42,16 @@ At the top of the Font list, under *The tag's own fonts (pixel-exact)*, are the 
 - **Angle**: text, boxes and pictures can be turned to any angle (slider, number box, or the 15° / 90° buttons; *Straight* puts it back). Pictures can also be flipped left-right or upside down.
 - For a dark version of a background, select it and tick *Swap black and white*.
 
+## Products from your inventory
+Open **Inventory (products)** on the right.
+- **Load file…** takes a CSV, TSV, Excel (.xlsx, first sheet) or JSON export from any inventory system. **Use a link…** takes a Google Sheet (shared with "anyone with the link"), or any web address that gives CSV or JSON (a database export or an API). With a link, the app gets fresh prices before each send (untick to stop it) or when you press **Refresh now**. The list is kept on this Mac in `tag_designer/inventory.json`; your inventory system is only read, never changed.
+- **Which column is which**: the app guesses, and you can change it. Product ID (SKU, item number), Title, Name, Price, Summary and Barcode number. **Price sign** puts `$` (or `€`, `£`, nothing) in front and shows two decimals; prices written like "2 for $5" stay as they are.
+- **Use in text**: `{title}`, `{name}`, `{price}`, `{summary}`, `{barcode}`. Every other column works too, named in lower case with `_` for spaces (a column "Aisle No" is `{aisle_no}`). The text box's "Add a field…" menu lists them. `{name}` is the product's name on a tag that has a product, and the tag's own name otherwise; `{tag_name}` is always the tag's name.
+- **Product on each tag**: type or pick the product ID (or exact name) next to each tag. Or keep it in your list: a **Tag column** holding the tag's name (like `ESL_A7E16A`) links them by itself. Each tag shows its product under the tag list. A tag without a product gets empty product fields, and Send says which tags those are.
+- **Barcode** (on the left under Add): draws `{barcode}` (or any number or text you type) as real bars on whole pixels, so a scanner can read it. Auto picks UPC-A for 11 or 12 digits, EAN-13 for 13, and Code 128 for anything else; you can choose. Bar width 1 px makes a UPC 95 px wide, 2 px makes it 190 px. Keep some white space either side. A crossed box means the number can't be made into a barcode (for example a wrong check digit); nothing is drawn there on the tag.
+- **Templates > Product label (from Inventory)** is a ready shelf label: title, summary, barcode and big price.
+- "Preview as" shows the design with that tag's product.
+
 ## Editing a tag's design later
 
 Every time you send a design, Tag Designer keeps its layers (text, pictures, boxes,

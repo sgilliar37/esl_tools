@@ -17,3 +17,4 @@ tag_designer/tests/demo_screens/
 firmware/build/
 firmware/out/
 tag_designer/tag_designs/
+tag_designer/inventory.json
