@@ -440,7 +440,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(404, {"error": "no such font"})
                 return self.reply(200, open(path, "rb").read(), FONT_TYPES[os.path.splitext(name)[1].lower()])
             if p == "/api/version":
-                return self.reply(200, {"version": CODE_VERSION})
+                # stale: the files were updated after this copy started (it keeps running old code)
+                return self.reply(200, {"version": CODE_VERSION, "stale": _code_version() != CODE_VERSION})
             if p == "/api/password":
                 import tag_lock
                 return self.reply(200, {"set": tag_lock.load_masters()["current"] is not None})

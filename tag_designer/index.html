@@ -1658,6 +1658,16 @@ $("btnTest").onclick = () => {
   runJob("/api/send", { buffers }, "Test pattern", Object.keys(buffers));
 };
 
+// an update was installed while this copy kept running: say so (it would act on old code)
+async function checkStale() {
+  try {
+    const v = await api("/api/version");
+    if (v.stale && !$("staleBar")) {
+      const b = el(`<div id="staleBar" style="position:fixed;top:0;left:0;right:0;z-index:50;background:#a35b00;color:#fff;padding:8px 14px;font-size:14px">Tag Designer was updated. Close its Terminal window and open Tag Designer again to use the new version.</div>`);
+      document.body.appendChild(b);
+    }
+  } catch (e) {}
+}
 // ---------------------------------------------------------------- start
 (async function start() {
   fonts.mac = MAC_FONTS.filter(fontInstalled);
@@ -1671,6 +1681,7 @@ $("btnTest").onclick = () => {
   try { tags = (await api("/api/tags")).tags; } catch (e) {}
   renderTags();
   loadPassword();
+  checkStale(); setInterval(checkStale, 60000);
   if (!tags.length) scanTags();
 })();
 </script>
