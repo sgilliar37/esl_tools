@@ -1,0 +1,22 @@
+[
+  {"file": "smile.svg", "name": "Smile"},
+  {"file": "sun.svg", "name": "Sun"},
+  {"file": "cloud.svg", "name": "Cloud"},
+  {"file": "rain.svg", "name": "Rain"},
+  {"file": "snowflake.svg", "name": "Snowflake"},
+  {"file": "moon.svg", "name": "Moon"},
+  {"file": "tree.svg", "name": "Tree"},
+  {"file": "leaf.svg", "name": "Leaf"},
+  {"file": "flower.svg", "name": "Flower"},
+  {"file": "cat.svg", "name": "Cat"},
+  {"file": "dog.svg", "name": "Dog"},
+  {"file": "house.svg", "name": "House"},
+  {"file": "coffee.svg", "name": "Coffee"},
+  {"file": "cake.svg", "name": "Cake"},
+  {"file": "gift.svg", "name": "Gift"},
+  {"file": "car.svg", "name": "Car"},
+  {"file": "bike.svg", "name": "Bike"},
+  {"file": "phone.svg", "name": "Phone"},
+  {"file": "mail.svg", "name": "Mail"},
+  {"file": "shopping_cart.svg", "name": "Shopping Cart"}
+]

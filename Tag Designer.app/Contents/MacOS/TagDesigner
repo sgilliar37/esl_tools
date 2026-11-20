@@ -1,0 +1,25 @@
+#!/bin/bash
+# Tag Designer.app: prepares things on first run, then opens the designer window.
+# The window is started through Terminal ("Tag Designer (window).command"), because
+# macOS gives Bluetooth permission to Terminal; a script-based app like this one
+# cannot reliably get its own Bluetooth permission.
+# It finds the ATC_TLSR_Paper folder next to the app, or in your home folder, so
+# the app can also be dragged into Applications or the Dock.
+APP="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(dirname "$APP")"
+if [ -f "$ROOT/server.py" ] && [ ! -f "$ROOT/tag_designer/server.py" ]; then ROOT="$(dirname "$ROOT")"
+elif [ ! -f "$ROOT/tag_designer/server.py" ]; then ROOT="$HOME/ATC_TLSR_Paper"; fi
+say_alert() { osascript -e "display alert \"Tag Designer\" message \"$1\"" >/dev/null 2>&1; }
+cd "$ROOT/tag_designer" 2>/dev/null || { say_alert "Could not find the ATC_TLSR_Paper folder next to the app or in your home folder."; exit 1; }
+LOG="$PWD/tag_designer.log"
+PY=../stock_backup/.venv/bin/python
+if [ ! -x "$PY" ] || ! "$PY" -c "import bleak, webview" 2>/dev/null; then
+  osascript -e 'display notification "First start: setting up (about 2 minutes)..." with title "Tag Designer"' >/dev/null 2>&1
+  if [ ! -x "$PY" ]; then
+    (cd ../stock_backup && bash ./setup.sh) >>"$LOG" 2>&1 || { say_alert "Setup failed. See tag_designer/tag_designer.log."; exit 1; }
+  fi
+  "$PY" -m pip install --quiet "bleak==3.1.0" "pywebview>=5,<6" >>"$LOG" 2>&1 \
+    || { say_alert "Could not install what the app needs (no internet?). See tag_designer/tag_designer.log."; exit 1; }
+fi
+chmod +x "Tag Designer (window).command" 2>/dev/null
+open -a Terminal "$PWD/Tag Designer (window).command"

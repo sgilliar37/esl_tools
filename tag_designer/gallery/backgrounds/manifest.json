@@ -1,0 +1,19 @@
+[
+  {"file": "grid.svg", "name": "Grid Paper"},
+  {"file": "ruled.svg", "name": "Ruled Lines"},
+  {"file": "halftone.svg", "name": "Dots"},
+  {"file": "stripes.svg", "name": "Diagonal Stripes"},
+  {"file": "bricks.svg", "name": "Bricks"},
+  {"file": "halftone-fade.svg", "name": "Dot Fade"},
+  {"file": "hatched-corners.svg", "name": "Hatched Corners"},
+  {"file": "checker-edges.svg", "name": "Checker Edges"},
+  {"file": "chevrons.svg", "name": "Chevron Edges"},
+  {"file": "scallops.svg", "name": "Scalloped Edges"},
+  {"file": "waves.svg", "name": "Waves"},
+  {"file": "confetti.svg", "name": "Confetti"},
+  {"file": "starburst.svg", "name": "Starburst"},
+  {"file": "header-bar.svg", "name": "Header Bar"},
+  {"file": "footer-bar.svg", "name": "Footer Bar"},
+  {"file": "split-panel.svg", "name": "Split Panel"},
+  {"file": "dark-frame.svg", "name": "Dark With Frame"}
+]

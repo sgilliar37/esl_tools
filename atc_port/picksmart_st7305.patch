@@ -1,0 +1,1098 @@
+diff --git a/Firmware/src/app.c b/Firmware/src/app.c
+index ed87f17..63431ec 100644
+--- a/Firmware/src/app.c
++++ b/Firmware/src/app.c
+@@ -9,6 +9,7 @@
+ #include "battery.h"
+ #include "ble.h"
+ #include "flash.h"
++#include "tag_lock.h"
+ #include "ota.h"
+ #include "epd.h"
+ #include "time.h"
+@@ -30,7 +31,14 @@ _attribute_ram_code_ void user_init_normal(void)
+     init_time();
+     init_ble();
+     init_flash();
++    tag_lock_init();
++    // Telink OTA: allow 3 minutes for a full update and make sure the
++    // inactive flash bank is erased so an update can be written into it.
++    bls_ota_setTimeout(180 * 1000 * 1000);
++    bls_ota_clearNewFwDataArea();
++#if !BOARD_PICKSMART_ST7305
+     init_nfc();
++#endif
+ 
+     // epd_display_tiff((uint8_t *)bart_tif, sizeof(bart_tif));
+     // epd_display(3334533);
+@@ -58,8 +66,9 @@ _attribute_ram_code_ void main_loop(void)
+         ble_send_temp(EPD_read_temp() * 10);
+     }
+ 
++    extern uint8_t epd_custom_image;
+     uint8_t current_minute = (get_time() / 60) % 60;
+-    if (current_minute != minute_refresh)
++    if (!epd_custom_image && current_minute != minute_refresh)
+     {
+         minute_refresh = current_minute;
+         uint8_t current_hour = ((get_time() / 60) / 60) % 24;
+diff --git a/Firmware/src/app_att.c b/Firmware/src/app_att.c
+index 577e8c1..c28e911 100644
+--- a/Firmware/src/app_att.c
++++ b/Firmware/src/app_att.c
+@@ -72,8 +72,10 @@ static u8 tempValueInCCC[2];
+ RAM u8 my_tempVal[2] 	= {0};
+ 
+ /////////////////////////////////////////////////////////
+-static const  u16 my_OtaServiceUUID				= 0x221f;
+-static const  u16 my_OtaUUID			    = 0x331f;
++// Standard Telink OTA service/characteristic (same as the stock PickSmart firmware),
++// so one Bluetooth updater works for both the stock and this firmware.
++static const  u8 my_OtaServiceUUID[16]		= TELINK_OTA_UUID_SERVICE;
++static const  u8 my_OtaUUID[16]			    = TELINK_SPP_DATA_OTA;
+ static u8 my_OtaData = 0x00;
+ static u8  my_OtaCCC[2];
+ 
+@@ -90,7 +92,18 @@ static const  u8 my_EPD_BLEUUID[16]				= { EPD_BLE_CHAR_UUID };
+ // 13187B10-EBA9-A3BA-044E-83D3217D9A38
+ #define EPD_BLE_SERVICE_UUID 0x38, 0x9a, 0x7d, 0x21, 0xd3, 0x83, 0x4e, 0x04, 0xba, 0xa3, 0xa9, 0xeb, 0x10, 0x7b, 0x18, 0x13
+ static const  u8 my_EPD_BLE_ServiceUUID[16]		= { EPD_BLE_SERVICE_UUID };
+-static u8 	  my_EPD_BLE_Data 					= 0x00;
++// Read by the Tag Designer app: "03 state" (tag_lock.h). 03 = this firmware
++// keeps uploaded pictures on screen, understands 05 00 / 05 01 and has the
++// password lock; state 0 = no password, 1 = locked, 2 = unlocked.
++#include "tag_lock.h"
++// Screen read-back: "06 HI LO" (write to the picture characteristic) copies
++// EPD_SCREEN_WINDOW bytes of epd_buffer from that offset into this window; a
++// read of the screen characteristic returns them. epd_buffer always holds what
++// is on the screen (the clock is drawn through it too).
++// 4B646064-6264-F3A7-8941-E65356EA82FE
++#define EPD_SCREEN_CHAR_UUID 0xfe, 0x82, 0xea, 0x56, 0x53, 0xe6, 0x41, 0x89, 0xa7, 0xf3, 0x64, 0x62, 0x64, 0x60, 0x64, 0x4b
++static const u8 my_EPD_ScreenUUID[16] = { EPD_SCREEN_CHAR_UUID };
++RAM u8 epd_screen_window[EPD_SCREEN_WINDOW];
+ 
+ // Include attribute (Battery service)
+ static const u16 include[3] = {BATT_PS_H, BATT_LEVEL_INPUT_CCB_H, SERVICE_UUID_BATTERY};
+@@ -135,10 +148,10 @@ static const u8 my_tempCharVal[5] = {
+ };
+ 
+ //// OTA attribute values
+-static const u8 my_OtaCharVal[5] = {
+-	CHAR_PROP_NOTIFY | CHAR_PROP_WRITE,
++static const u8 my_OtaCharVal[19] = {
++	CHAR_PROP_READ | CHAR_PROP_WRITE_WITHOUT_RSP | CHAR_PROP_NOTIFY,
+ 	U16_LO(OTA_CMD_OUT_DP_H), U16_HI(OTA_CMD_OUT_DP_H),
+-	U16_LO(0x331f), U16_HI(0x331f)
++	0x12,0x2B,0x0d,0x0c,0x0b,0x0a,0x09,0x08,0x07,0x06,0x05,0x04,0x03,0x02,0x01,0x00
+ };
+ 
+ //// RxTx attribute values
+@@ -155,6 +168,12 @@ static const u8 my_EPD_BLECharVal[19] = {
+ 	EPD_BLE_CHAR_UUID,
+ };
+ 
++static const u8 my_EPD_ScreenCharVal[19] = {
++	CHAR_PROP_READ,
++	U16_LO(EPD_BLE_SCREEN_DP_H), U16_HI(EPD_BLE_SCREEN_DP_H),
++	EPD_SCREEN_CHAR_UUID,
++};
++
+ // TM : to modify
+ static const attribute_t my_Attributes[] = {
+ 	{ATT_END_H - 1, 0,0,0,0,0},	// total num of attribute
+@@ -185,9 +204,9 @@ static const attribute_t my_Attributes[] = {
+ 	{0,ATT_PERMISSIONS_RDWR,2,sizeof(tempValueInCCC),(u8*)(&clientCharacterCfgUUID), 	(u8*)(tempValueInCCC), 0},	//value
+ 	////////////////////////////////////// OTA /////////////////////////////////////////////////////
+ 	// OTA
+-	{4,ATT_PERMISSIONS_READ, 2,2,(u8*)(&my_primaryServiceUUID), 	(u8*)(&my_OtaServiceUUID), 0},
++	{4,ATT_PERMISSIONS_READ, 2,16,(u8*)(&my_primaryServiceUUID), 	(u8*)(my_OtaServiceUUID), 0},
+ 	{0,ATT_PERMISSIONS_READ, 2, sizeof(my_OtaCharVal),(u8*)(&my_characterUUID), (u8*)(my_OtaCharVal), 0},				//prop
+-	{0,ATT_PERMISSIONS_WRITE, 2,sizeof(my_OtaData),(u8*)(&my_OtaUUID),	(&my_OtaData), &otaWritePre},			//value
++	{0,ATT_PERMISSIONS_RDWR, 16,sizeof(my_OtaData),(u8*)(my_OtaUUID),	(&my_OtaData), &otaWritePre},			//value
+ 	{0,ATT_PERMISSIONS_RDWR,2,sizeof(my_OtaCCC),(u8*)(&clientCharacterCfgUUID), 	(u8*)(my_OtaCCC), 0},	//value
+ 	////////////////////////////////////// RxTx ////////////////////////////////////////////////////
+ 	// RxTx Communication
+@@ -196,10 +215,14 @@ static const attribute_t my_Attributes[] = {
+ 	{0,ATT_PERMISSIONS_WRITE, 2,sizeof(my_RxTx_Data),(u8*)(&my_RxTxUUID),	(&my_RxTx_Data), &RxTxWrite},			//value
+ 	{0,ATT_PERMISSIONS_RDWR,2,sizeof(RxTxValueInCCC),(u8*)(&clientCharacterCfgUUID), 	(u8*)(RxTxValueInCCC), 0},	//value
+ 	////////////////////////////////////// EPD_BLE ////////////////////////////////////////////////////
+-	{3,ATT_PERMISSIONS_READ, 2, 16,(u8*)(&my_primaryServiceUUID), (u8*)(&my_EPD_BLE_ServiceUUID), 0},
++	{5,ATT_PERMISSIONS_READ, 2, 16,(u8*)(&my_primaryServiceUUID), (u8*)(&my_EPD_BLE_ServiceUUID), 0},
+ 	{0,ATT_PERMISSIONS_READ, 2, sizeof(my_EPD_BLECharVal), (u8*)(&my_characterUUID), (u8*)(my_EPD_BLECharVal), 0},
+-	{0,ATT_PERMISSIONS_WRITE, 16, sizeof(my_EPD_BLE_Data), (u8*)(&my_EPD_BLEUUID),	(&my_EPD_BLE_Data), (att_readwrite_callback_t) &epd_ble_handle_write},
++	{0,ATT_PERMISSIONS_RDWR, 16, sizeof(tag_lock_status), (u8*)(&my_EPD_BLEUUID),	(tag_lock_status), (att_readwrite_callback_t) &epd_ble_handle_write},
++	{0,ATT_PERMISSIONS_READ, 2, sizeof(my_EPD_ScreenCharVal), (u8*)(&my_characterUUID), (u8*)(my_EPD_ScreenCharVal), 0},
++	{0,ATT_PERMISSIONS_READ, 16, sizeof(epd_screen_window), (u8*)(&my_EPD_ScreenUUID), (u8*)(epd_screen_window), 0},
+ };
++// the table must have exactly one row per handle (row 0 holds the count)
++typedef char att_table_size_check[(sizeof(my_Attributes) / sizeof(my_Attributes[0]) == ATT_END_H) ? 1 : -1];
+ 
+ void my_att_init(void)
+ {
+diff --git a/Firmware/src/app_config.h b/Firmware/src/app_config.h
+index 51cfaee..45ae958 100644
+--- a/Firmware/src/app_config.h
++++ b/Firmware/src/app_config.h
+@@ -72,7 +72,8 @@ typedef enum
+ 	EPD_BLE_PS_H, 								//UUID: , 	VALUE: EPD_BLE service uuid
+ 	EPD_BLE_CMD_OUT_CD_H,						//UUID: , 	VALUE:  			Prop: write_without_rsp
+ 	EPD_BLE_CMD_OUT_DP_H,						//UUID: EPD_BLE uuid,  VALUE: EPD_BLEData
+-	EPD_BLE_CMD_OUT_DESC_H,						//UUID: , 	VALUE: EPD_BLEName
++	EPD_BLE_SCREEN_CD_H,						//UUID: , 	VALUE:  			Prop: read
++	EPD_BLE_SCREEN_DP_H,						//UUID: screen uuid, VALUE: 180-byte window into epd_buffer (see 06 command)
+ 
+ 	ATT_END_H,
+ 
+diff --git a/Firmware/src/battery.c b/Firmware/src/battery.c
+index 2c1190f..9f19a9b 100644
+--- a/Firmware/src/battery.c
++++ b/Firmware/src/battery.c
+@@ -85,7 +85,7 @@ _attribute_ram_code_ uint16_t get_battery_mv(void)
+ 	gpio_write(GPIO_PB7, 1);
+ 	return get_adc_reading(B7P, GND);*/
+     adc_init();
+-	adc_vbat_init(GPIO_PB7);
++	adc_vbat_init(BATT_ADC_PIN);
+     adc_power_on_sar_adc(1);
+ 	return adc_sample_and_get_result();
+ }
+diff --git a/Firmware/src/ble.c b/Firmware/src/ble.c
+index 5641b64..2af08c2 100644
+--- a/Firmware/src/ble.c
++++ b/Firmware/src/ble.c
+@@ -12,6 +12,7 @@
+ #include "ble.h"
+ #include "cmd_parser.h"
+ #include "flash.h"
++#include "tag_lock.h"
+ 
+ RAM uint8_t ble_connected = 0;
+ RAM uint8_t ota_started = 0;
+@@ -59,6 +60,7 @@ _attribute_ram_code_ void ble_disconnect_callback(uint8_t e, uint8_t *p, int n)
+ {
+ 	ble_connected = 0;
+ 	ota_started = 0;
++	tag_lock_connection_changed();
+ 	printf("BLE disconnected\r\n");
+ }
+ 
+@@ -71,6 +73,7 @@ _attribute_ram_code_ void ble_connect_callback(uint8_t e, uint8_t *p, int n)
+ {
+ 	ble_connected = 1;
+ 	ota_started = 0;
++	tag_lock_connection_changed();
+ 	ble_set_connection_speed(200);
+ 	printf("BLE connected\r\n");
+ }
+@@ -82,16 +85,20 @@ _attribute_ram_code_ void ble_set_connection_speed(uint16_t speed)
+ 
+ _attribute_ram_code_ int otaWritePre(void *p)
+ {
++	if (!tag_lock_allows_changes())
++		return 0; // locked: firmware updates need the password first
+ 	if (ota_started == 0)
+ 	{
+ 		ota_started = 1;
+ 		ble_set_connection_speed(6);
+ 	}
+-	return custom_otaWrite(p);
++	return otaWrite(p); // Telink SDK OTA: writes the inactive bank, checks CRC, switches banks
+ }
+ 
+ _attribute_ram_code_ int RxTxWrite(void *p)
+ {
++	if (!tag_lock_allows_changes())
++		return 0; // locked: settings and clock need the password first
+ 	cmd_parser(p);
+ 	return 0;
+ }
+diff --git a/Firmware/src/epd.c b/Firmware/src/epd.c
+index 2b40a89..9a88853 100755
+--- a/Firmware/src/epd.c
++++ b/Firmware/src/epd.c
+@@ -9,6 +9,7 @@
+ #include "epd_bwy_350.h"
+ #include "epd_bw_213_ice.h"
+ #include "epd_bwr_154.h"
++#include "lcd_st7305.h"
+ #include "drivers.h"
+ #include "stack/ble/ble.h"
+ 
+@@ -23,14 +24,15 @@ extern const uint8_t ucMirror[];
+ #include "font30.h"
+ 
+ RAM uint8_t epd_model = 0; // 0 = Undetected, 1 = BW213, 2 = BWR213, 3 = BWR154, 4 = BW213ICE, 5 = BWR350
+-const char *epd_model_string[] = {"NC", "BW213", "BWR213", "BWR154", "213ICE", "BWR350", "BWY350"};
++const char *epd_model_string[] = {"NC", "BW213", "BWR213", "BWR154", "213ICE", "BWR350", "BWY350", "ST7305"};
++#define EPD_MODEL_ST7305 7
+ RAM uint8_t epd_update_state = 0;
+ 
+ const char *BLE_conn_string[] = {"", "B"};
+ RAM uint8_t epd_temperature_is_read = 0;
+ RAM uint8_t epd_temperature = 0;
+ 
+-uint8_t epd_buffer[epd_buffer_size];
++RAM uint8_t epd_buffer[epd_buffer_size]; // retained in deep sleep, so a picture upload survives sleeps between packets
+ uint8_t epd_temp[epd_buffer_size]; // for OneBitDisplay to draw into
+ OBDISP obd;                        // virtual display structure
+ TIFFIMAGE tiff;
+@@ -44,6 +46,10 @@ void set_EPD_model(uint8_t model_nr)
+ // Here we detect what E-Paper display is connected
+ _attribute_ram_code_ void EPD_detect_model(void)
+ {
++#if BOARD_PICKSMART_ST7305
++    epd_model = EPD_MODEL_ST7305; // fixed LCD, nothing to probe
++    return;
++#endif
+     EPD_init();
+     // system power
+     EPD_POWER_ON();
+@@ -80,6 +86,9 @@ _attribute_ram_code_ uint8_t EPD_read_temp(void)
+ {
+     if (epd_temperature_is_read)
+         return epd_temperature;
++#if BOARD_PICKSMART_ST7305
++    return 0; // the LCD has no temperature sensor
++#endif
+ 
+     if (!epd_model)
+         EPD_detect_model();
+@@ -116,6 +125,12 @@ _attribute_ram_code_ uint8_t EPD_read_temp(void)
+ 
+ _attribute_ram_code_ void EPD_Display(unsigned char *image, int size, uint8_t full_or_partial)
+ {
++#if BOARD_PICKSMART_ST7305
++    // Reflective LCD: the write is synchronous, no busy wait, no power-down.
++    lcd_st7305_display(image);
++    epd_update_state = 0;
++    return;
++#endif
+     if (!epd_model)
+         EPD_detect_model();
+ 
+@@ -148,6 +163,10 @@ _attribute_ram_code_ void EPD_Display(unsigned char *image, int size, uint8_t fu
+ 
+ _attribute_ram_code_ void epd_set_sleep(void)
+ {
++#if BOARD_PICKSMART_ST7305
++    epd_update_state = 0; // never cut LCD power, or the image disappears
++    return;
++#endif
+     if (!epd_model)
+         EPD_detect_model();
+ 
+@@ -297,8 +316,10 @@ _attribute_ram_code_ void epd_display(uint32_t time_is, uint16_t battery_mv, int
+     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 232, 20, (char *)buff, 1);
+     sprintf(buff, "%02d:%02d", ((time_is / 60) / 60) % 24, (time_is / 60) % 60);
+     obdWriteStringCustom(&obd, (GFXfont *)&DSEG14_Classic_Mini_Regular_40, 50, 65, (char *)buff, 1);
++#if !BOARD_PICKSMART_ST7305
+     sprintf(buff, "%d'C", EPD_read_temp());
+     obdWriteStringCustom(&obd, (GFXfont *)&Special_Elite_Regular_30, 10, 95, (char *)buff, 1);
++#endif
+     sprintf(buff, "Battery %dmV", battery_mv);
+     obdWriteStringCustom(&obd, (GFXfont *)&Dialog_plain_16, 10, 120, (char *)buff, 1);
+     FixBuffer(epd_temp, epd_buffer, resolution_w, resolution_h);
+diff --git a/Firmware/src/epd_ble_service.c b/Firmware/src/epd_ble_service.c
+index 8f07a22..51aa351 100644
+--- a/Firmware/src/epd_ble_service.c
++++ b/Firmware/src/epd_ble_service.c
+@@ -6,6 +6,7 @@
+ 
+ #include "epd.h"
+ #include "ble.h"
++#include "tag_lock.h"
+ 
+ extern uint8_t *epd_temp;
+ 
+@@ -16,7 +17,13 @@ extern uint8_t *epd_temp;
+ 	}
+ 
+ extern unsigned char epd_buffer[epd_buffer_size];
+-unsigned int byte_pos = 0;
++RAM unsigned int byte_pos = 0;
++
++// Set while a picture sent over Bluetooth is on screen (or being uploaded):
++// the main loop then stops redrawing the clock over it. Cleared by 05 00.
++RAM uint8_t epd_custom_image = 0;
++extern uint8_t minute_refresh;
++extern uint8_t hour_refresh;
+ 
+ int epd_ble_handle_write(void *p)
+ {
+@@ -26,17 +33,24 @@ int epd_ble_handle_write(void *p)
+ 
+ 	ASSERT_MIN_LEN(payload_len, 1);
+ 
++	if (tag_lock_command(payload, payload_len))
++		return 0;
++	if (!tag_lock_allows_changes())
++		return 0;  // locked: only 10 / 11 (unlock) are accepted
++
+ 	switch (payload[0])
+ 	{
+ 	// Clear EPD display.
+ 	case 0x00:
+ 		ASSERT_MIN_LEN(payload_len, 2);
++		epd_custom_image = 1;
+ 		memset(epd_buffer, payload[1], sizeof(epd_buffer));
+ 		ble_set_connection_speed(40);
+ 		return 0;
+ 	// Push buffer to display.
+ 	case 0x01:
+ 		ble_set_connection_speed(200);
++		epd_custom_image = 1;
+ 		EPD_Display(epd_buffer, epd_buffer_size, 1);
+ 		return 0;
+ 	// Set byte_pos.
+@@ -54,8 +68,32 @@ int epd_ble_handle_write(void *p)
+ 		byte_pos += payload_len - 1;
+ 		return 0;
+ 	case 0x04: // decode & display a TIFF image
++		epd_custom_image = 1;
+ 		epd_display_tiff(epd_buffer, byte_pos);
+ 		return 0;
++	// 06 HI LO: load the screen read-back window from epd_buffer at that offset
++	case 0x06:
++		ASSERT_MIN_LEN(payload_len, 3);
++		{
++			extern u8 epd_screen_window[EPD_SCREEN_WINDOW];
++			unsigned int pos = payload[1] << 8 | payload[2];
++			if (pos + EPD_SCREEN_WINDOW <= sizeof(epd_buffer))
++				memcpy(epd_screen_window, epd_buffer + pos, EPD_SCREEN_WINDOW);
++			if (pos == 0)
++				ble_set_connection_speed(40);
++		}
++		return 0;
++	// 05 00: go back to the clock screen (redrawn on the next loop).
++	// 05 01: keep the current picture (same as after 01).
++	case 0x05:
++		ASSERT_MIN_LEN(payload_len, 2);
++		epd_custom_image = payload[1] ? 1 : 0;
++		if (!epd_custom_image)
++		{
++			minute_refresh = 100;
++			hour_refresh = 100;
++		}
++		return 0;
+ 	default:
+ 		return 0;
+ 	}
+diff --git a/Firmware/src/epd_ble_service.h b/Firmware/src/epd_ble_service.h
+index 8645eae..846ed73 100644
+--- a/Firmware/src/epd_ble_service.h
++++ b/Firmware/src/epd_ble_service.h
+@@ -1,3 +1,6 @@
+ #pragma once
+ 
+-int epd_ble_handle_write(void * p);
+\ No newline at end of file
++int epd_ble_handle_write(void * p);
++// bytes returned per read of the screen characteristic (fits one read
++// response with the MTU macOS normally uses, 185)
++#define EPD_SCREEN_WINDOW 180
+diff --git a/Firmware/src/lcd_st7305.c b/Firmware/src/lcd_st7305.c
+new file mode 100644
+index 0000000..f036767
+--- /dev/null
++++ b/Firmware/src/lcd_st7305.c
+@@ -0,0 +1,183 @@
++#include <stdint.h>
++#include "tl_common.h"
++#include "main.h"
++#include "drivers.h"
++#include "lcd_st7305.h"
++
++#if BOARD_PICKSMART_ST7305
++
++// Set to 1 if the picture comes out as a negative (black/white swapped).
++#ifndef LCD_INVERT
++#define LCD_INVERT 0
++#endif
++
++// Physical layout of the controller RAM (from the stock firmware):
++// 125 row addresses x 2 lines = 250 lines (long side)
++// 11 column addresses x 12 px = 132 px (short side, 122 on the glass)
++#define LCD_ROW_ADDRS 125
++#define LCD_BYTES_PER_ROW 33
++#define LCD_VISIBLE_H 122
++
++RAM static uint8_t lcd_initialised = 0; // kept in retention RAM across deep sleep
++
++_attribute_ram_code_ static void pin_out(GPIO_PinTypeDef pin, int level, GPIO_PullTypeDef pull)
++{
++    gpio_set_func(pin, AS_GPIO);
++    gpio_write(pin, level);
++    gpio_set_input_en(pin, 0);
++    gpio_set_output_en(pin, 1);
++    gpio_setup_up_down_resistor(pin, pull);
++}
++
++_attribute_ram_code_ void lcd_st7305_gpio_init(void)
++{
++    // Pull-ups on POWER and RESET hold them high while the chip is in deep
++    // sleep (the stock firmware does the same), so the LCD keeps its image.
++    pin_out(LCD_POWER, 1, PM_PIN_PULLUP_10K);
++    pin_out(LCD_RESET, 1, PM_PIN_PULLUP_10K);
++    pin_out(LCD_CS, 1, PM_PIN_PULLUP_1M);
++    pin_out(LCD_DC, 0, PM_PIN_PULLDOWN_100K);
++    pin_out(LCD_CLK, 0, PM_PIN_PULLDOWN_100K);
++    pin_out(LCD_MOSI, 0, PM_PIN_PULLDOWN_100K);
++
++    gpio_set_func(LCD_TE, AS_GPIO);
++    gpio_set_output_en(LCD_TE, 0);
++    gpio_set_input_en(LCD_TE, 1);
++    gpio_setup_up_down_resistor(LCD_TE, PM_PIN_PULLDOWN_100K);
++}
++
++_attribute_ram_code_ static void spi_byte(uint8_t v)
++{
++    for (int i = 0; i < 8; i++)
++    {
++        gpio_write(LCD_CLK, 0);
++        gpio_write(LCD_MOSI, v & 0x80);
++        v <<= 1;
++        gpio_write(LCD_CLK, 1);
++    }
++    gpio_write(LCD_CLK, 0);
++}
++
++_attribute_ram_code_ static void lcd_cmd(uint8_t cmd, const uint8_t *data, int len)
++{
++    gpio_write(LCD_CS, 0);
++    gpio_write(LCD_DC, 0);
++    spi_byte(cmd);
++    gpio_write(LCD_DC, 1);
++    for (int i = 0; i < len; i++)
++        spi_byte(data[i]);
++    gpio_write(LCD_CS, 1);
++}
++
++#define CMD(c, ...)                                     \
++    do                                                  \
++    {                                                   \
++        static const uint8_t d_[] = {0, ##__VA_ARGS__}; \
++        lcd_cmd(c, d_ + 1, sizeof(d_) - 1);             \
++    } while (0)
++
++_attribute_ram_code_ static void lcd_init_controller(void)
++{
++    // Hardware reset: high 10 ms, low 50 ms, high 10 ms (stock timings)
++    gpio_write(LCD_RESET, 1);
++    WaitMs(10);
++    gpio_write(LCD_RESET, 0);
++    WaitMs(50);
++    gpio_write(LCD_RESET, 1);
++    WaitMs(10);
++
++    CMD(0xD6, 0x17, 0x02);       // NVM load control
++    CMD(0xD1, 0x01);             // booster enable
++    CMD(0xC0, 0x0E, 0x05);       // gate voltage
++    CMD(0xC1, 0x41, 0x41, 0x41, 0x41); // VSH
++    CMD(0xC2, 0x32, 0x32, 0x32, 0x32); // VSL
++    CMD(0xC4, 0x4B, 0x4B, 0x4B, 0x4B);
++    CMD(0xC5, 0x00, 0x00, 0x00, 0x00);
++    CMD(0xD8, 0xA6, 0xE9);       // oscillator
++    CMD(0xB2, 0x11);             // frame rate
++    CMD(0xB3, 0xE5, 0xF6, 0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45); // HPM gate EQ
++    CMD(0xB4, 0x05, 0x46, 0x77, 0x77, 0x77, 0x77, 0x76, 0x45);             // LPM gate EQ
++    CMD(0xB7, 0x13);             // source EQ
++    CMD(0xB0, 0x3F);             // gate line setting
++    CMD(0x11);                   // sleep out
++    WaitMs(120);
++    CMD(0xC9, 0x00);             // source voltage select
++    CMD(0xC7, 0xC1, 0x41, 0x26); // ultra low power code
++    CMD(0x36, 0x00);             // memory data access control
++    CMD(0x3A, 0x11);             // data format
++    CMD(0xB9, 0x20);             // source setting
++    CMD(0xB8, 0x25);             // panel setting
++    CMD(0x21);                   // display inversion on (as stock)
++    CMD(0x2A, 0x19, 0x23);       // column address 0x19..0x23
++    CMD(0x2B, 0x00, 0x7C);       // row address 0..124
++    CMD(0x35, 0x00);             // TE on
++    CMD(0xD0, 0xFF);             // auto power down
++    CMD(0x39);                   // low power (idle) mode
++    CMD(0x29);                   // display on
++}
++
++// Is image pixel (x = 0..249 along the long side, y = 0..121) white?
++static inline int img_white(const uint8_t *image, int x, int y)
++{
++    return image[(249 - x) * 16 + (y >> 3)] & (0x80 >> (y & 7));
++}
++
++_attribute_ram_code_ void lcd_st7305_display(const uint8_t *image)
++{
++    lcd_st7305_gpio_init();
++    if (!lcd_initialised)
++    {
++        lcd_init_controller();
++        lcd_initialised = 1;
++    }
++
++    CMD(0x2A, 0x19, 0x23);
++    CMD(0x2B, 0x00, 0x7C);
++
++    gpio_write(LCD_CS, 0);
++    gpio_write(LCD_DC, 0);
++    spi_byte(0x2C); // memory write
++    gpio_write(LCD_DC, 1);
++
++    // RAM line ly (0..249) shows image column x = 249 - ly; RAM pixel lx
++    // (0..131) shows image row y = 131 - lx. lx 0..9 are off the glass.
++    // Each byte covers 4 pixels x 2 lines: bit 7 = (lx, even line),
++    // bit 6 = (lx, odd line), bit 5 = (lx+1, even line) ...
++    for (int ra = 0; ra < LCD_ROW_ADDRS; ra++)
++    {
++        int x0 = 249 - (ra * 2);
++        int x1 = x0 - 1;
++        for (int b = 0; b < LCD_BYTES_PER_ROW; b++)
++        {
++            uint8_t v = 0;
++            for (int i = 0; i < 4; i++)
++            {
++                int y = 131 - (b * 4 + i);
++                int w0 = 1, w1 = 1;
++                if (y < LCD_VISIBLE_H)
++                {
++                    w0 = img_white(image, x0, y) != 0;
++                    w1 = img_white(image, x1, y) != 0;
++                }
++                v |= (w0 << (7 - 2 * i)) | (w1 << (6 - 2 * i));
++            }
++#if LCD_INVERT
++            v = ~v;
++#endif
++            spi_byte(v);
++        }
++    }
++    gpio_write(LCD_CS, 1);
++    lcd_st7305_sleep_pins();
++}
++
++// Leave the bus idle and quiet between updates. POWER and RESET stay high.
++_attribute_ram_code_ void lcd_st7305_sleep_pins(void)
++{
++    gpio_write(LCD_CS, 1);
++    gpio_write(LCD_CLK, 0);
++    gpio_write(LCD_MOSI, 0);
++    gpio_write(LCD_DC, 0);
++}
++
++#endif
+diff --git a/Firmware/src/lcd_st7305.h b/Firmware/src/lcd_st7305.h
+new file mode 100644
+index 0000000..3ade6c7
+--- /dev/null
++++ b/Firmware/src/lcd_st7305.h
+@@ -0,0 +1,12 @@
++#pragma once
++#include <stdint.h>
++
++// Sitronix ST7305-family reflective LCD, 250x122, as fitted to the
++// PickSmart "2.13inch BW Tag" (TLSR8250). Init sequence copied from the
++// stock firmware. The image needs the LCD to stay powered; there is no
++// e-ink style "refresh then power off".
++
++void lcd_st7305_gpio_init(void);
++// image: ATC 2.13" BW buffer layout (250 rows of 16 bytes, bit=1 is white).
++void lcd_st7305_display(const uint8_t *image);
++void lcd_st7305_sleep_pins(void);
+diff --git a/Firmware/src/led.c b/Firmware/src/led.c
+index b1bbe97..3e577c1 100644
+--- a/Firmware/src/led.c
++++ b/Firmware/src/led.c
+@@ -29,6 +29,9 @@ _attribute_ram_code_ void init_led(void)
+ 
+ _attribute_ram_code_ void set_led_color(uint8_t color)
+ {
++#if BOARD_PICKSMART_ST7305
++    return; // no known LEDs on this board; LED_BLUE (PA7) would block SWS flashing
++#endif
+     switch (color)
+     {
+     case 1:
+diff --git a/Firmware/src/main.c b/Firmware/src/main.c
+index 8546414..1939934 100644
+--- a/Firmware/src/main.c
++++ b/Firmware/src/main.c
+@@ -37,9 +37,11 @@ _attribute_ram_code_ int main (void)    //must run in ramcode
+ #endif
+ 	blc_app_loadCustomizedParameters();
+ 	
+-    init_led();
+-	init_uart();
+-	init_i2c();
++#if !BOARD_PICKSMART_ST7305
++    init_led();   // PA7 is the SWS flashing pin on this board, PD2 is LCD CS
++	init_uart();  // PA0 is the LCD power switch on this board
++	init_i2c();   // PC0 is the LCD TE pin on this board
++#endif
+ 		
+ 	if( deepRetWakeUp ){
+ 		user_init_deepRetn ();
+diff --git a/Firmware/src/main.h b/Firmware/src/main.h
+index 4c297dc..cd54dcf 100644
+--- a/Firmware/src/main.h
++++ b/Firmware/src/main.h
+@@ -13,13 +13,32 @@
+ #include "ota.h"
+ #include "uart.h"
+ 
+-#define LED_BLUE	GPIO_PA7
+-#define LED_RED		GPIO_PD2
+-#define LED_GREEN	GPIO_PD3
+-
+-#define RXD 		GPIO_PA0
+-#define TXD			GPIO_PB1
++// ---- Board selection -------------------------------------------------------
++// Steve's PickSmart "2.13inch BW Tag" board (TLSR8250). The screen is a
++// Sitronix ST7305-family reflective LCD (250x122), NOT an e-ink panel.
++// Pin map recovered from the stock firmware (see PORTING_NOTES.md).
++#define BOARD_PICKSMART_ST7305 1
+ 
++#if BOARD_PICKSMART_ST7305
++#define LCD_POWER	GPIO_PA0 // high = LCD powered; must stay high or the image is lost
++#define LCD_RESET	GPIO_PB5
++#define LCD_DC		GPIO_PB6 // 0 = command, 1 = data
++#define LCD_MOSI	GPIO_PB7
++#define LCD_CS		GPIO_PD2
++#define LCD_CLK		GPIO_PD7
++#define LCD_TE		GPIO_PC0 // tearing-effect output from the LCD (unused)
++#define BATT_ADC_PIN	GPIO_PB5 // reset pin is held high, so it doubles as the VBAT sense pin
++// The original ATC names, kept so shared code still compiles. EPD_BUSY points at the
++// unused TE pin; nothing waits on it for this board.
++#define EPD_RESET 	LCD_RESET
++#define EPD_DC 		LCD_DC
++#define EPD_BUSY 	LCD_TE
++#define EPD_CS		LCD_CS
++#define EPD_CLK		LCD_CLK
++#define EPD_MOSI	LCD_MOSI
++#define EPD_ENABLE	LCD_POWER
++#else
++#define BATT_ADC_PIN	GPIO_PB7
+ #define EPD_RESET 	GPIO_PD4
+ #define EPD_DC 		GPIO_PD7
+ #define EPD_BUSY 	GPIO_PA1
+@@ -27,6 +46,15 @@
+ #define EPD_CLK		GPIO_PB5
+ #define EPD_MOSI	GPIO_PB6
+ #define EPD_ENABLE	GPIO_PC5
++#endif
++
++#define LED_BLUE	GPIO_PA7
++#define LED_RED		GPIO_PD2
++#define LED_GREEN	GPIO_PD3
++
++#define RXD 		GPIO_PA0
++#define TXD			GPIO_PB1
++
+ 
+ #define NFC_SDA		GPIO_PC0
+ #define NFC_SCL		GPIO_PC1
+diff --git a/Firmware/src/project.mk b/Firmware/src/project.mk
+index a020b46..578064a 100755
+--- a/Firmware/src/project.mk
++++ b/Firmware/src/project.mk
+@@ -7,8 +7,10 @@ $(OUT_PATH)/epd_ble_service.o \
+ $(OUT_PATH)/i2c.o \
+ $(OUT_PATH)/cmd_parser.o \
+ $(OUT_PATH)/flash.o \
++$(OUT_PATH)/tag_lock.o \
+ $(OUT_PATH)/time.o \
+ $(OUT_PATH)/epd_spi.o \
++$(OUT_PATH)/lcd_st7305.o \
+ $(OUT_PATH)/epd.o \
+ $(OUT_PATH)/epd_bw_213.o \
+ $(OUT_PATH)/epd_bwr_213.o \
+diff --git a/Firmware/src/tag_lock.c b/Firmware/src/tag_lock.c
+new file mode 100644
+index 0000000..4ae5857
+--- /dev/null
++++ b/Firmware/src/tag_lock.c
+@@ -0,0 +1,325 @@
++// Password lock: see tag_lock.h.
++#include "tag_lock.h"
++
++#ifdef TAG_LOCK_HOST_TEST
++#include "tag_lock_host.h"
++#else
++#include "tl_common.h"
++#include "drivers.h"
++#include "time.h"
++#endif
++
++typedef struct {
++	uint32_t magic;
++	uint32_t seq;          // the newer of the two sectors' records wins
++	uint8_t key[16];
++	uint8_t salt[16];      // random, chosen by the app when it locks the tag (not secret)
++	uint8_t check[32];     // ~(key, salt): a half-written record is never taken as a key
++} tag_lock_record_t;
++
++#define REC_FREE 0     // sector erased
++#define REC_OK 1
++#define REC_BAD 2      // our record, half written -> stay locked (fail closed)
++
++RAM static uint8_t lock_key[16];
++RAM static uint8_t lock_salt[16];
++RAM static uint32_t lock_seq;
++RAM static uint32_t lock_addr;           // sector holding the current record
++RAM static uint8_t lock_has_key;
++RAM static uint8_t lock_open;            // unlocked in this connection
++RAM static uint8_t lock_challenge[16];
++RAM static uint8_t lock_challenge_ok;   // a challenge is waiting for its answer
++RAM static uint8_t lock_session[16];    // the challenge that unlocked this connection
++RAM static uint8_t lock_failures;        // wrong answers in this connection
++RAM static uint8_t lock_total_failures;  // since the last right answer (kept across connections)
++RAM static uint32_t lock_last_failure;   // get_time() of the last wrong answer
++RAM uint8_t tag_lock_status[2];         // what reading the picture characteristic returns
++
++extern unsigned char epd_screen_window[];
++
++/* ---------------- AES-128 encryption (FIPS-197), small software version ---- */
++static const uint8_t sbox[256] = {
++0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
++0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
++0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
++0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
++0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
++0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
++0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
++0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
++0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
++0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
++0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
++0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
++0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
++0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
++0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
++0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16};
++
++static uint8_t xtime(uint8_t x) { return (uint8_t)((x << 1) ^ ((x & 0x80) ? 0x1b : 0)); }
++
++void tag_lock_aes128(const uint8_t key[16], const uint8_t in[16], uint8_t out[16])
++{
++	uint8_t s[16], k[16], t[16];
++	uint8_t rcon = 1;
++	int i, round;
++	memcpy(k, key, 16);
++	for (i = 0; i < 16; i++)
++		s[i] = in[i] ^ k[i];
++	for (round = 1; round <= 10; round++)
++	{
++		// next round key
++		k[0] ^= sbox[k[13]] ^ rcon;
++		k[1] ^= sbox[k[14]];
++		k[2] ^= sbox[k[15]];
++		k[3] ^= sbox[k[12]];
++		for (i = 4; i < 16; i++)
++			k[i] ^= k[i - 4];
++		rcon = xtime(rcon);
++		// SubBytes + ShiftRows (state is column-major: s[col*4 + row])
++		for (i = 0; i < 16; i++)
++			t[i] = sbox[s[(i + 4 * (i & 3)) & 15]];
++		// MixColumns (not in the last round)
++		if (round < 10)
++		{
++			for (i = 0; i < 16; i += 4)
++			{
++				uint8_t a0 = t[i], a1 = t[i + 1], a2 = t[i + 2], a3 = t[i + 3];
++				uint8_t all = a0 ^ a1 ^ a2 ^ a3;
++				t[i] = a0 ^ all ^ xtime(a0 ^ a1);
++				t[i + 1] = a1 ^ all ^ xtime(a1 ^ a2);
++				t[i + 2] = a2 ^ all ^ xtime(a2 ^ a3);
++				t[i + 3] = a3 ^ all ^ xtime(a3 ^ a0);
++			}
++		}
++		for (i = 0; i < 16; i++)
++			s[i] = t[i] ^ k[i];
++	}
++	memcpy(out, s, 16);
++	memset(k, 0, sizeof(k));
++	memset(s, 0, sizeof(s));
++	memset(t, 0, sizeof(t));
++}
++
++/* ---------------- key storage ---------------------------------------------- */
++static void update_status(void)
++{
++	tag_lock_status[0] = 0x03;  // firmware v3: keeps pictures + password lock
++	tag_lock_status[1] = tag_lock_state();
++}
++
++static int read_record(uint32_t addr, tag_lock_record_t *r)
++{
++	int i, blank = 1, ok;
++	flash_read_page(addr, sizeof(*r), (uint8_t *)r);
++	for (i = 0; i < (int)sizeof(*r); i++)
++		if (((uint8_t *)r)[i] != 0xFF)
++			blank = 0;
++	if (blank || r->magic != TAG_LOCK_MAGIC)
++		return REC_FREE;  // erased, or something else's data (never one of our records)
++	ok = 1;
++	for (i = 0; i < 16 && ok; i++)
++		if ((uint8_t)(r->key[i] ^ r->check[i]) != 0xFF || (uint8_t)(r->salt[i] ^ r->check[16 + i]) != 0xFF)
++			ok = 0;
++	return ok ? REC_OK : REC_BAD;
++}
++
++static void load_key(void)
++{
++	tag_lock_record_t a, b;
++	int ra = read_record(TAG_LOCK_ADDR, &a);
++	int rb = read_record(TAG_LOCK_ADDR2, &b);
++	tag_lock_record_t *use = 0;
++	if (ra == REC_OK && (rb != REC_OK || a.seq >= b.seq))
++	{
++		use = &a;
++		lock_addr = TAG_LOCK_ADDR;
++	}
++	else if (rb == REC_OK)
++	{
++		use = &b;
++		lock_addr = TAG_LOCK_ADDR2;
++	}
++	if (use)
++	{
++		lock_has_key = 1;
++		lock_seq = use->seq;
++		memcpy(lock_key, use->key, 16);
++		memcpy(lock_salt, use->salt, 16);
++	}
++	else if (ra == REC_BAD || rb == REC_BAD)
++	{
++		// damaged record and no good one: stay locked with a key nobody knows
++		// (./unlock_usb.sh clears it over the USB-UART adapter)
++		lock_has_key = 1;
++		lock_seq = 0;
++		lock_addr = TAG_LOCK_ADDR;
++		generateRandomNum(16, lock_key);
++		memset(lock_salt, 0, 16);
++	}
++	else
++	{
++		lock_has_key = 0;
++		lock_seq = 0;
++		lock_addr = TAG_LOCK_ADDR2;  // so the first key goes to TAG_LOCK_ADDR
++		memset(lock_key, 0, 16);
++		memset(lock_salt, 0, 16);
++	}
++	memset(&a, 0, sizeof(a));
++	memset(&b, 0, sizeof(b));
++}
++
++// Write the new record into the other sector, check it, and only then erase
++// the old one: a power cut at any point leaves either the old or the new key.
++static int store_key(const uint8_t *key, const uint8_t *salt)
++{
++	tag_lock_record_t r;
++	uint32_t old = lock_has_key ? lock_addr : 0;
++	uint32_t dst = (lock_addr == TAG_LOCK_ADDR) ? TAG_LOCK_ADDR2 : TAG_LOCK_ADDR;
++	int i, ok;
++	r.magic = TAG_LOCK_MAGIC;
++	r.seq = lock_seq + 1;
++	for (i = 0; i < 16; i++)
++	{
++		r.key[i] = key[i];
++		r.salt[i] = salt[i];
++		r.check[i] = ~key[i];
++		r.check[16 + i] = ~salt[i];
++	}
++	flash_erase_sector(dst);
++	flash_write_page(dst, sizeof(r), (uint8_t *)&r);
++	ok = read_record(dst, &r) == REC_OK && memcmp(r.key, key, 16) == 0 && memcmp(r.salt, salt, 16) == 0;
++	memset(&r, 0, sizeof(r));
++	if (!ok)
++	{
++		flash_erase_sector(dst);  // keep the old key (or none) exactly as it was
++		return 0;
++	}
++	if (old)
++		flash_erase_sector(old);
++	load_key();
++	return 1;
++}
++
++static void erase_key(void)
++{
++	flash_erase_sector(TAG_LOCK_ADDR);
++	flash_erase_sector(TAG_LOCK_ADDR2);
++	load_key();
++}
++
++void tag_lock_init(void)
++{
++	load_key();
++	tag_lock_connection_changed();
++}
++
++void tag_lock_connection_changed(void)
++{
++	lock_open = 0;
++	lock_challenge_ok = 0;
++	lock_failures = 0;  // lock_total_failures is kept: it slows down guessing across connections
++	memset(lock_challenge, 0, 16);
++	memset(lock_session, 0, 16);
++	update_status();
++}
++
++uint8_t tag_lock_state(void)
++{
++	if (!lock_has_key)
++		return TAG_LOCK_NONE;
++	return lock_open ? TAG_LOCK_OPEN : TAG_LOCK_LOCKED;
++}
++
++int tag_lock_allows_changes(void)
++{
++	return !lock_has_key || lock_open;
++}
++
++static int same16(const uint8_t *a, const uint8_t *b)
++{
++	uint8_t d = 0;
++	int i;
++	for (i = 0; i < 16; i++)
++		d |= a[i] ^ b[i];
++	return d == 0;
++}
++
++static int cooling_down(void)
++{
++	// after 6 wrong answers (in any number of connections), one try per 30 s
++	return lock_total_failures >= 6 && (uint32_t)(get_time() - lock_last_failure) < 30;
++}
++
++int tag_lock_command(const uint8_t *payload, unsigned int len)
++{
++	uint8_t buf[16];
++	int i;
++	if (len < 1)
++		return 0;
++	switch (payload[0])
++	{
++	case 0x10: // new challenge: window = 10 state challenge[16] salt[16]
++		generateRandomNum(16, lock_challenge);
++		lock_challenge_ok = lock_failures < 3 && !cooling_down();
++		epd_screen_window[0] = 0x10;
++		epd_screen_window[1] = tag_lock_state();
++		if (lock_challenge_ok)
++			memcpy(epd_screen_window + 2, lock_challenge, 16);
++		else
++			memset(epd_screen_window + 2, 0, 16);  // no tries left now: wait / reconnect
++		memcpy(epd_screen_window + 18, lock_salt, 16);
++		break;
++	case 0x11: // answer
++		if (len >= 17 && lock_has_key && lock_challenge_ok)
++		{
++			tag_lock_aes128(lock_key, lock_challenge, buf);
++			if (same16(buf, payload + 1))
++			{
++				lock_open = 1;
++				lock_total_failures = 0;
++				memcpy(lock_session, lock_challenge, 16);
++			}
++			else
++			{
++				lock_open = 0;  // a wrong answer always leaves the tag locked
++				lock_failures++;
++				if (lock_total_failures < 255)
++					lock_total_failures++;
++				lock_last_failure = get_time();
++			}
++		}
++		lock_challenge_ok = 0;  // one try per challenge
++		memset(lock_challenge, 0, 16);
++		break;
++	case 0x12: // store a key: 12 key[16] salt[16]
++		if (len >= 33)
++		{
++			if (!lock_has_key)
++			{
++				if (store_key(payload + 1, payload + 17))
++					lock_open = 1;  // whoever set it is unlocked for the rest of this connection
++				memset(lock_session, 0, 16);
++			}
++			else if (lock_open)
++			{
++				for (i = 0; i < 16; i++)
++					buf[i] = lock_session[i] ^ 0x5A;
++				tag_lock_aes128(lock_key, buf, buf);
++				for (i = 0; i < 16; i++)
++					buf[i] ^= payload[1 + i];
++				store_key(buf, payload + 17);  // on failure the old key stays
++			}
++		}
++		break;
++	case 0x13: // remove the key
++		if (lock_has_key && lock_open)
++			erase_key();
++		break;
++	default:
++		return 0;
++	}
++	memset(buf, 0, sizeof(buf));
++	update_status();
++	return 1;
++}
+diff --git a/Firmware/src/tag_lock.h b/Firmware/src/tag_lock.h
+new file mode 100644
+index 0000000..cb6ed6a
+--- /dev/null
++++ b/Firmware/src/tag_lock.h
+@@ -0,0 +1,41 @@
++#pragma once
++// Password lock for the tag (Tag Designer project).
++//
++// When a key is stored, every write that changes the tag (pictures, settings,
++// clock, Bluetooth firmware updates) is refused until the app proves it knows
++// the key in this connection:
++//   write 10            -> the tag makes a fresh random 16-byte challenge and
++//                          puts "10 state challenge[16] salt[16]" in the screen
++//                          window (read it from the screen characteristic 4b646064).
++//                          The challenge is all zeros when no try is allowed now.
++//   write 11 resp[16]   -> resp must be AES-128(key, challenge). One try per
++//                          challenge; 3 wrong answers end tries until reconnect;
++//                          after 6 wrong answers in a row (any connections) only
++//                          one try per 30 s. A wrong answer also re-locks.
++//   write 12 k[16] s[16]-> store a new key with its salt s. With no key yet: k is
++//                          the key. Once unlocked: k = newkey XOR AES-128(key, challenge ^ 5A..5A).
++//   write 13            -> remove the key (only once unlocked).
++// Reading the picture characteristic gives "03 state": state 0 = no password,
++// 1 = locked, 2 = unlocked in this connection.
++// The unlock lasts until the connection ends. Keys live in flash sectors
++// 0x7A000/0x7B000 (written new-then-old, so a power cut keeps one valid key; a
++// damaged record keeps the tag locked). Recovery without the key: erase both
++// sectors over SWire (./unlock_usb.sh).
++#include <stdint.h>
++
++#define TAG_LOCK_ADDR 0x7A000   /* two sectors: the newer valid record is the key */
++#define TAG_LOCK_ADDR2 0x7B000
++#define TAG_LOCK_MAGIC 0x4B434F4Cu  /* "LOCK" */
++
++#define TAG_LOCK_NONE 0
++#define TAG_LOCK_LOCKED 1
++#define TAG_LOCK_OPEN 2
++
++void tag_lock_init(void);
++void tag_lock_connection_changed(void);   // call on connect and on disconnect
++int tag_lock_allows_changes(void);         // 1 if writes may change the tag
++uint8_t tag_lock_state(void);
++// handles 10..13 on the picture characteristic; returns 1 if it was one of them
++int tag_lock_command(const uint8_t *payload, unsigned int len);
++extern uint8_t tag_lock_status[2];  // "03 state": the picture characteristic's value
++void tag_lock_aes128(const uint8_t key[16], const uint8_t in[16], uint8_t out[16]);
+diff --git a/Firmware/src/uart.c b/Firmware/src/uart.c
+index 509399b..12c9cbd 100644
+--- a/Firmware/src/uart.c
++++ b/Firmware/src/uart.c
+@@ -35,6 +35,9 @@ _attribute_ram_code_ void puts(const char *str)
+ 
+ int putchar_custom(int c)
+ {
++#if BOARD_PICKSMART_ST7305
++	return 0; // UART not set up on this board (PA0 drives LCD power)
++#endif
+ 	uart_ndma_send_byte((char)c);
+ 	while (uart_tx_is_busy())
+ 	{

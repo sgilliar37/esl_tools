@@ -1,0 +1,58 @@
+[
+ {
+  "file": "pic_price_tag.svg",
+  "name": "Price Tag"
+ },
+ {
+  "file": "pic_sale_burst.svg",
+  "name": "Sale Burst"
+ },
+ {
+  "file": "pic_heart.svg",
+  "name": "Heart"
+ },
+ {
+  "file": "pic_star.svg",
+  "name": "Star"
+ },
+ {
+  "file": "pic_warning.svg",
+  "name": "Warning"
+ },
+ {
+  "file": "pic_stop.svg",
+  "name": "Stop"
+ },
+ {
+  "file": "pic_check.svg",
+  "name": "Check"
+ },
+ {
+  "file": "pic_gift.svg",
+  "name": "Gift"
+ },
+ {
+  "file": "pic_apple.svg",
+  "name": "Apple"
+ },
+ {
+  "file": "pic_sun.svg",
+  "name": "Sun"
+ },
+ {
+  "file": "pic_battery.svg",
+  "name": "Battery"
+ },
+ {
+  "file": "pic_bell.svg",
+  "name": "Alarm Bell"
+ },
+ {
+  "file": "pic_location.svg",
+  "name": "Location Pin"
+ },
+ {
+  "file": "pic_cup.svg",
+  "name": "Cup"
+ }
+]

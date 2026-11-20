@@ -1,0 +1,26 @@
+[
+ {
+  "id": "Dialog_plain_16",
+  "name": "Dialog 16 (tag default)",
+  "size": 16,
+  "use": "name, battery and status lines"
+ },
+ {
+  "id": "DSEG14_Classic_Mini_Regular_40",
+  "name": "DSEG14 40 (tag clock)",
+  "size": 40,
+  "use": "the big clock digits"
+ },
+ {
+  "id": "Special_Elite_Regular_30",
+  "name": "Special Elite 30",
+  "size": 30,
+  "use": "the temperature on e-paper models"
+ },
+ {
+  "id": "Roboto_Black_80",
+  "name": "Roboto Black 80",
+  "size": 80,
+  "use": "included in the firmware, not drawn by default"
+ }
+]

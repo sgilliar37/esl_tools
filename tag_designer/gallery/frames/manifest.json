@@ -1,0 +1,14 @@
+[
+  {"file": "thick.svg", "name": "Thick Border"},
+  {"file": "double.svg", "name": "Double Line"},
+  {"file": "rounded.svg", "name": "Rounded Border"},
+  {"file": "dashed.svg", "name": "Dashed Border"},
+  {"file": "brackets.svg", "name": "Corner Brackets"},
+  {"file": "ornament.svg", "name": "Ornamental Corners"},
+  {"file": "ticket.svg", "name": "Ticket"},
+  {"file": "pricetag.svg", "name": "Price Tag"},
+  {"file": "speech.svg", "name": "Speech Bubble"},
+  {"file": "ribbon.svg", "name": "Banner Ribbon"},
+  {"file": "filmstrip.svg", "name": "Film Strip"},
+  {"file": "stamp.svg", "name": "Stamp Edge"}
+]

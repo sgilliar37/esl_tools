@@ -1,0 +1,18 @@
+# local state and secrets never go in the repository
+.venv/
+__pycache__/
+*.pyc
+*.log
+*.tgz
+.DS_Store
+stock_backup/backups/
+tag_designer/.app_storage/
+tag_designer/screens.json
+tag_designer/tag_screens.json
+tag_designer/tag_fields.json
+tag_designer/designs/*.json
+tag_designer/fonts/*
+tag_designer/gallery/mine/*
+tag_designer/tests/demo_screens/
+firmware/build/
+firmware/out/

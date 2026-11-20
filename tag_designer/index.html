@@ -1,0 +1,1678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tag Designer</title>
+<style>
+:root {
+  --bg: #f4f3ef; --panel: #ffffff; --line: #dedbd2; --text: #1d1d1b; --muted: #6b6960;
+  --accent: #2f5bd3; --accent-text: #fff; --danger: #b3261e; --ok: #1e7b34; --warn: #9a6200;
+  --glass: #e4e2d6; --ink: #1c1c1a; --sel: #2f5bd3; --chip: #f0eee8;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1b1a; --panel: #262624; --line: #3a3936; --text: #ecebe6; --muted: #a29f96;
+    --accent: #7c9cf2; --accent-text: #10131c; --danger: #f2877e; --ok: #74c98a; --warn: #e5b45c;
+    --chip: #31302d; --sel: #7c9cf2; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+button, select, input, textarea { font: inherit; color: inherit; }
+button { background: var(--chip); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button.small { padding: 2px 7px; font-size: 12px; }
+button.icon { padding: 2px 6px; min-width: 26px; }
+input[type=text], input[type=number], select, textarea { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+input[type=number] { width: 64px; }
+textarea { width: 100%; resize: vertical; min-height: 60px; }
+label { color: var(--muted); font-size: 12px; }
+header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0 12px 0 0; }
+header .spacer { flex: 1; }
+.menu { position: relative; }
+.menu-list { position: absolute; top: 34px; left: 0; z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 220px; box-shadow: 0 6px 24px rgba(0,0,0,.18); display: none; }
+.menu-list.open { display: block; }
+.menu-list .item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+.menu-list .item:hover { background: var(--chip); }
+.menu-list .empty { padding: 6px 8px; color: var(--muted); }
+main { display: grid; grid-template-columns: 220px 1fr 320px; gap: 0; height: calc(100% - 53px); }
+aside, section.stage-wrap { overflow: auto; }
+aside { background: var(--panel); padding: 12px; }
+aside.left { border-right: 1px solid var(--line); }
+aside.right { border-left: 1px solid var(--line); }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 14px 0 8px; }
+h2:first-child { margin-top: 0; }
+#gallery { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: center; justify-content: center; z-index: 25; }
+#gallery.open { display: flex; }
+.gal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; width: min(860px, 94vw); max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+.gal-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.gal-head .seg button.on { background: var(--accent); color: var(--accent-text); }
+.gal-head .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.gal-head .seg button { border: none; border-radius: 0; }
+.gal-grid { overflow: auto; padding: 14px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(var(--gal-min, 190px), 1fr)); }
+.gal-item { position: relative; border: 1px solid var(--line); border-radius: 8px; padding: 6px; cursor: pointer; background: var(--chip); text-align: center; }
+.gal-item:hover { border-color: var(--accent); }
+.gal-item .thumb { background: #e4e2d6; border-radius: 4px; display: flex; align-items: center; justify-content: center; aspect-ratio: 250 / 122; overflow: hidden; }
+.gal-item.square .thumb { aspect-ratio: 1; }
+.gal-item img { max-width: 100%; max-height: 100%; display: block; }
+.gal-item .nm { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gal-item .del { position: absolute; top: 2px; right: 2px; padding: 0 6px; font-size: 12px; display: none; }
+.gal-item:hover .del { display: block; }
+.gal-empty { color: var(--muted); padding: 20px; grid-column: 1 / -1; text-align: center; }
+.add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.layers { list-style: none; padding: 0; margin: 0; }
+.layers li { display: flex; align-items: center; gap: 4px; padding: 5px 6px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.layers li.sel { border-color: var(--sel); background: var(--chip); }
+.layers li .lname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layers li.hidden .lname { opacity: .45; text-decoration: line-through; }
+.layers li button { padding: 0 5px; font-size: 12px; background: none; border: none; color: var(--muted); }
+.stage-wrap { display: flex; flex-direction: column; align-items: center; padding: 24px 16px; gap: 12px; }
+.tag-body { background: #fafaf7; border-radius: 18px; padding: 22px 26px; box-shadow: 0 2px 10px rgba(0,0,0,.15), inset 0 0 0 1px rgba(0,0,0,.06); }
+@media (prefers-color-scheme: dark) { .tag-body { background: #d9d8d2; } }
+.stage { position: relative; touch-action: none; outline: none; }
+.stage canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: default; }
+.selbox { position: absolute; border: 1.5px dashed var(--sel); pointer-events: none; }
+.handle { position: absolute; width: 11px; height: 11px; background: var(--sel); border: 2px solid #fff; border-radius: 3px; cursor: nwse-resize; }
+.stage-tools { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; flex-wrap: wrap; justify-content: center; }
+.hint { color: var(--muted); font-size: 12px; text-align: center; max-width: 640px; }
+.props .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.props .row > label:first-child { width: 64px; }
+.props .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.props .seg button { border: none; border-radius: 0; background: none; padding: 4px 9px; }
+.props .seg button.on { background: var(--accent); color: var(--accent-text); }
+.props .muted { color: var(--muted); font-size: 12px; }
+.props input[type=range] { flex: 1; }
+.tags-list { list-style: none; margin: 0; padding: 0; }
+.tags-list li { padding: 7px 4px; border-bottom: 1px solid var(--line); }
+.tags-list li:last-child { border-bottom: none; }
+.tag-top { display: flex; gap: 8px; align-items: center; }
+.tag-top .tname { font-weight: 600; flex: 1; }
+.tag-top .sig { color: var(--muted); font-size: 12px; }
+.tag-meta { display: flex; gap: 10px; align-items: center; margin: 3px 0 0 24px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.pw-form { display: grid; gap: 5px; margin-bottom: 8px; }
+.pw-form input { font-size: 12px; padding: 4px 6px; }
+.lockv { font-size: 12px; }
+.lockv.locked { color: #2f7a3a; }
+.lockv.none { color: #a35b00; }
+.tag-meta select.scr { font-size: 11px; padding: 1px 4px; max-width: 130px; }
+.batt { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.batt .cell { position: relative; width: 26px; height: 12px; border: 1.5px solid currentColor; border-radius: 3px; box-sizing: border-box; }
+.batt .cell::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.batt .fill { position: absolute; left: 1px; top: 1px; bottom: 1px; border-radius: 1px; background: currentColor; }
+.batt .pct { font-weight: 600; }
+.batt.ok { color: var(--ok); } .batt.mid { color: var(--warn); } .batt.low { color: var(--danger); } .batt.none { color: var(--muted); }
+.badge { font-size: 11px; border-radius: 10px; padding: 1px 7px; background: var(--chip); color: var(--muted); }
+.tag-note { font-size: 12px; color: var(--muted); margin: 3px 0 0 24px; }
+.screen { margin: 8px 0 0 24px; }
+.screen canvas { display: block; width: 250px; max-width: 100%; image-rendering: pixelated; border-radius: 4px; box-shadow: 0 0 0 1px var(--line); }
+.screen .cap { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.screen .acts { display: flex; gap: 6px; margin-top: 4px; }
+.tag-status { font-size: 12px; margin: 4px 0 0 24px; }
+.tag-status.done { color: var(--ok); } .tag-status.failed { color: var(--danger); } .tag-status.warn { color: var(--warn); }
+.bar { height: 4px; background: var(--line); border-radius: 2px; margin: 4px 0 0 24px; overflow: hidden; }
+.bar > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.send-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; max-width: 80vw; }
+.toast.show { opacity: 1; }
+details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 14px 0 8px; }
+.check { display: flex; gap: 6px; align-items: center; margin: 6px 0; font-size: 13px; color: var(--text); }
+.drop-note { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(47,91,211,.15); border: 2px dashed var(--sel); color: var(--text); font-weight: 600; }
+.stage.dragover .drop-note { display: flex; }
+@media (max-width: 1100px) { main { grid-template-columns: 1fr; height: auto; } aside.left, aside.right { border: none; border-top: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tag Designer</h1>
+  <button id="btnNew" title="Start an empty design">New</button>
+  <div class="menu"><button id="btnTemplates">Templates ▾</button><div class="menu-list" id="menuTemplates"></div></div>
+  <div class="menu"><button id="btnOpen">Open ▾</button><div class="menu-list" id="menuOpen"></div></div>
+  <button id="btnSave" title="Save this design on your Mac (designs folder)">Save</button>
+  <button id="btnPng" title="Download the 250×122 picture as PNG">Export PNG</button>
+  <span class="spacer"></span>
+  <button id="btnUndo" class="icon" title="Undo (⌘Z)">↶</button>
+  <button id="btnRedo" class="icon" title="Redo (⇧⌘Z)">↷</button>
+</header>
+<main>
+  <aside class="left">
+    <h2>Add</h2>
+    <div class="add-grid">
+      <button id="addText">Text</button>
+      <button id="addImage">Picture…</button>
+      <button id="addBox">Box</button>
+      <button id="addLine">Line</button>
+      <button id="addGallery" style="grid-column:1/-1" title="Backgrounds, frames and pictures ready to use">Gallery…</button>
+    </div>
+    <input type="file" id="imageFile" accept="image/*" hidden>
+    <h2>Background</h2>
+    <div class="props"><div class="seg" id="bgSeg"></div></div>
+    <h2>Layers <span class="muted" style="text-transform:none;letter-spacing:0">(top first)</span></h2>
+    <ul class="layers" id="layers"></ul>
+  </aside>
+
+  <section class="stage-wrap">
+    <div class="tag-body">
+      <div class="stage" id="stage" tabindex="0">
+        <canvas id="view" width="250" height="122"></canvas>
+        <div class="selbox" id="selbox" hidden></div>
+        <div class="handle" id="handle" hidden></div>
+        <div class="drop-note">Drop the picture here</div>
+      </div>
+    </div>
+    <div class="stage-tools">
+      Zoom
+      <div class="props"><div class="seg" id="zoomSeg"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="3">3×</button><button data-v="4">4×</button></div></div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px">Screen <select id="profileSel" title="The kind of screen you are designing for"></select></label>
+      <span id="profileNote"></span>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px">Preview as <select id="previewAs"></select></label>
+    </div>
+    <div class="hint">Drag things to move them, drag the blue corner to resize. Arrow keys nudge by 1 pixel (Shift: 10). Drop or paste (⌘V) a picture to add it. ⌘D duplicates, Delete removes.</div>
+  </section>
+
+  <aside class="right">
+    <h2 id="propsTitle">Selected</h2>
+    <div class="props" id="props"></div>
+
+    <h2>Send to tags</h2>
+    <div class="send-row" style="margin-top:0">
+      <button id="btnScan">Scan for tags</button>
+      <button id="btnAll" class="small">Select all</button>
+    </div>
+    <ul class="tags-list" id="tags"></ul>
+    <div id="details"></div>
+    <div class="send-row">
+      <button class="primary" id="btnSend" disabled>Send to selected</button>
+      <button id="btnClock" disabled title="Go back to the tag's clock screen">Show clock</button>
+    </div>
+
+    <details>
+      <summary>Tag settings</summary>
+      <label class="check"><input type="checkbox" id="optFlip"> Turn picture upside down</label>
+      <label class="check"><input type="checkbox" id="optInvert"> Swap black and white</label>
+      <div class="muted" style="font-size:12px;margin:4px 0 8px">Use these if the first picture comes out upside down or as a negative. They only change what is sent, not your design.</div>
+      <button id="btnTest">Send test pattern</button>
+    </details>
+
+    <details id="lockBox">
+      <summary>Password lock</summary>
+      <div class="muted" style="font-size:12px;margin:4px 0 8px" id="lockInfo"></div>
+      <div class="pw-form">
+        <input type="password" id="pwCur" placeholder="Current password" autocomplete="current-password">
+        <input type="password" id="pwNew" placeholder="New password (at least 10 characters)" autocomplete="new-password">
+        <input type="password" id="pwNew2" placeholder="New password again" autocomplete="new-password">
+        <button id="btnPw">Save password</button>
+      </div>
+      <div class="send-row">
+        <button id="btnLock" disabled title="Put the app's password on the ticked tags">Lock selected</button>
+        <button id="btnUnlock" disabled title="Take the password off the ticked tags">Remove password</button>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:6px">A locked tag ignores pictures, settings and firmware updates from anything except this app on this Mac. The password stays in your Mac's Keychain. If it is ever lost, ./unlock_usb.sh resets a tag over the USB-UART adapter.</div>
+    </details>
+  </aside>
+</main>
+<div class="toast" id="toast"></div>
+<div id="gallery">
+  <div class="gal-box" role="dialog" aria-label="Gallery">
+    <div class="gal-head">
+      <strong style="margin-right:6px">Gallery</strong>
+      <div class="seg" id="galTabs"><button data-c="backgrounds">Backgrounds</button><button data-c="frames">Frames</button><button data-c="pictures">Pictures</button><button data-c="twotone">Colour</button><button data-c="mine">My pictures</button></div>
+      <span class="muted" id="galHint" style="font-size:12px;flex:1;min-width:160px"></span>
+      <button id="galAdd" class="small">Add your own…</button>
+      <input type="file" id="galFile" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,.svg" multiple hidden>
+      <button id="galClose" title="Close (Esc)">Close</button>
+    </div>
+    <div class="gal-grid" id="galGrid"></div>
+  </div>
+</div>
+<div id="ask" style="position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:30">
+  <form id="askForm" style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;width:min(380px,92vw);box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div id="askMsg" style="margin-bottom:10px"></div>
+    <input type="text" id="askInput" style="width:100%">
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button type="button" id="askCancel">Cancel</button><button type="submit" class="primary">OK</button></div>
+  </form>
+</div>
+
+<script>
+"use strict";
+// ---- screen types. bpc = bytes per column in the ATC picture buffer (pixel (x,y) -> byte (w-1-x)*bpc + (y>>3),
+// bit 0x80>>(y&7), set = white); null = design and export only (no known way to send it yet)
+const PROFILES = [
+  { id: "picksmart213", name: "PickSmart 2.13in LCD (black/white)", short: "PickSmart 2.13 B/W", w: 250, h: 122, colours: "bw", bpc: 16 },
+  { id: "atc_bw213", name: "2.13in e-paper, black/white", short: "2.13 B/W", w: 250, h: 122, colours: "bw", bpc: 16 },
+  { id: "atc_bwr213", name: "2.13in e-paper, black/white/red", short: "2.13 B/W/R", w: 250, h: 122, colours: "bwr", bpc: 16 },
+  { id: "atc_213ice", name: "2.13in e-paper 212×104, black/white", short: "2.13 212×104", w: 212, h: 104, colours: "bw", bpc: 13 },
+  { id: "atc_bwr154", name: "1.54in e-paper 200×200, black/white/red", short: "1.54 B/W/R", w: 200, h: 200, colours: "bwr", bpc: 25 },
+  { id: "bwr29", name: "2.9in e-paper 296×128, black/white/red", short: "2.9 B/W/R", w: 296, h: 128, colours: "bwr", bpc: null },
+  { id: "bwy29", name: "2.9in e-paper 296×128, black/white/yellow", short: "2.9 B/W/Y", w: 296, h: 128, colours: "bwy", bpc: null },
+  { id: "bwr350", name: "3.5in e-paper 384×184, black/white/red", short: "3.5 B/W/R", w: 384, h: 184, colours: "bwr", bpc: null },
+  { id: "bwy350", name: "3.5in e-paper 384×184, black/white/yellow", short: "3.5 B/W/Y", w: 384, h: 184, colours: "bwy", bpc: null },
+  { id: "bwr42", name: "4.2in e-paper 400×300, black/white/red", short: "4.2 B/W/R", w: 400, h: 300, colours: "bwr", bpc: null },
+];
+const DEFAULT_PROFILE = "picksmart213";
+const ACCENT = { bwr: { name: "Red", rgb: [200, 32, 40], view: [0xc4, 0x2a, 0x2e] }, bwy: { name: "Yellow", rgb: [240, 196, 0], view: [0xe0, 0xb4, 0x10] } };
+function profileById(id) { return PROFILES.find((p) => p.id === id) || PROFILES[0]; }
+let PROFILE = profileById(DEFAULT_PROFILE);
+let W = PROFILE.w, H = PROFILE.h;
+function hasAccent(pr) { return (pr || PROFILE).colours !== "bw"; }
+function accentName(pr) { return hasAccent(pr) ? ACCENT[(pr || PROFILE).colours].name : "Red"; }
+// colour name -> pixel value: 0 white, 1 black, 2 the screen's third colour (black where there is none)
+function ci(name) {
+  if (name === "white") return 0;
+  if (name === "accent" || name === "red" || name === "yellow") return hasAccent() ? 2 : 1;
+  return 1;
+}
+function colourChoices(extra) {
+  const c = [["black", "Black"], ["white", "White"]];
+  if (hasAccent()) c.push(["accent", accentName()]);
+  return extra ? extra.concat(c) : c;
+}
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } },
+};
+// in-page replacement for prompt(), which the Mac app's window does not support
+function askText(msg, def) {
+  return new Promise((resolve) => {
+    const box = $("ask"), inp = $("askInput");
+    $("askMsg").textContent = msg; inp.value = def || ""; box.hidden = false; box.style.display = "flex";
+    setTimeout(() => { inp.focus(); inp.select(); }, 0);
+    const done = (v) => { box.hidden = true; box.style.display = "none"; $("askForm").onsubmit = null; $("askCancel").onclick = null; resolve(v); };
+    $("askForm").onsubmit = (e) => { e.preventDefault(); done(inp.value); };
+    $("askCancel").onclick = () => done(null);
+    inp.onkeydown = (e) => { if (e.key === "Escape") done(null); };
+  });
+}
+function toast(msg, ms = 2600) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), ms);
+}
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+let nextId = 1;
+const uid = () => "L" + (Date.now().toString(36)) + (nextId++);
+
+// ---------------------------------------------------------------- fonts
+const MAC_FONTS = ["Helvetica Neue", "Helvetica", "Arial", "Arial Black", "Avenir Next", "Avenir Next Condensed",
+  "Futura", "Gill Sans", "Verdana", "Trebuchet MS", "Optima", "Georgia", "Times New Roman", "Palatino",
+  "Baskerville", "Didot", "Rockwell", "American Typewriter", "Courier New", "Menlo", "Monaco", "Impact",
+  "Copperplate", "Chalkboard SE", "Marker Felt", "Noteworthy", "Bradley Hand", "Snell Roundhand", "Zapfino",
+  "Phosphate", "Chalkduster", "Herculanum", "Papyrus", "Silom", "Big Caslon", "Hoefler Text", "Charter"];
+const fonts = { mac: [], custom: [], local: [] };
+function fontInstalled(name) {
+  const c = fontInstalled.c || (fontInstalled.c = document.createElement("canvas").getContext("2d"));
+  const probe = "mmmmmmmmmmlliWWQ@#08";
+  for (const base of ["monospace", "serif", "sans-serif"]) {
+    c.font = "40px " + base; const a = c.measureText(probe).width;
+    c.font = `40px "${name}", ${base}`; const b = c.measureText(probe).width;
+    if (a !== b) return true;
+  }
+  return false;
+}
+// ---- the tag's own bitmap fonts (the ones the firmware draws its clock screen with), pixel-exact
+const tagFonts = {}; // id -> { name, size, first, last, yAdvance, ascent, descent, glyphs, bits }
+const TAG_PREFIX = "tag:";
+async function loadTagFonts() {
+  try {
+    const { fonts: list } = await api("/api/tagfonts");
+    for (const meta of list) {
+      try {
+        const f = await api("/tagfonts/" + encodeURIComponent(meta.id) + ".json");
+        const raw = atob(f.bitmap); f.bits = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) f.bits[i] = raw.charCodeAt(i);
+        tagFonts[meta.id] = f;
+      } catch (e) { console.warn("tag font failed", meta.id, e); }
+    }
+  } catch (e) { console.warn(e); }
+}
+function tagFontOf(l) { return l && typeof l.font === "string" && l.font.startsWith(TAG_PREFIX) ? tagFonts[l.font.slice(TAG_PREFIX.length)] || null : null; }
+function isTagFont(l) { return !!(l && typeof l.font === "string" && l.font.startsWith(TAG_PREFIX)); }
+function tagScale(l, f) { return Math.max(1, Math.round((+l.size || f.size) / f.size)); }
+function tagGlyph(f, ch) { const c = ch.charCodeAt(0); return c >= f.first && c <= f.last ? f.glyphs[c - f.first] : null; }
+function tagLineWidth(f, s, k) { let w = 0; for (const ch of s) { const g = tagGlyph(f, ch); if (g) w += g[3] * k; } return w; }
+function tagMissing(l) { const f = tagFontOf(l); if (!f) return []; const m = new Set(); for (const ch of fillFields(l.text)) if (ch !== "\n" && !tagGlyph(f, ch)) m.add(ch); return [...m]; }
+// draws like the firmware's obdWriteStringCustom: glyph bits MSB first, packed row after row; cursor y is the baseline
+function drawTagLine(c, f, s, x, baseline, k) {
+  for (const ch of s) {
+    const g = tagGlyph(f, ch); if (!g) continue;
+    const [off, w, h, adv, xo, yo] = g;
+    for (let r = 0, bit = off * 8; r < h; r++) for (let q = 0; q < w; q++, bit++)
+      if (f.bits[bit >> 3] & (0x80 >> (bit & 7))) c.fillRect(x + (xo + q) * k, baseline + (yo + r) * k, k, k);
+    x += adv * k;
+  }
+}
+function familyFromFile(f) { return f.replace(/\.(ttf|otf|woff2?)$/i, ""); }
+async function loadCustomFonts() {
+  try {
+    const { fonts: files } = await api("/api/fonts");
+    for (const f of files) {
+      const fam = familyFromFile(f);
+      if (fonts.custom.includes(fam)) continue;
+      try {
+        const face = new FontFace(fam, `url("/fonts/${encodeURIComponent(f)}")`);
+        await face.load(); document.fonts.add(face); fonts.custom.push(fam);
+      } catch (e) { console.warn("font failed", f, e); }
+    }
+  } catch (e) { console.warn(e); }
+}
+async function uploadFont(file) {
+  const name = file.name.replace(/[^\w .()'&+,-]/g, "_");
+  await api("/api/fonts/" + encodeURIComponent(name), { method: "POST", body: file });
+  await loadCustomFonts();
+  return familyFromFile(name);
+}
+async function loadLocalFonts() {
+  if (!window.queryLocalFonts) { toast("This browser cannot list fonts. Use Chrome, or add a font file instead."); return; }
+  try {
+    const list = await window.queryLocalFonts();
+    const fams = new Set(list.map((f) => f.family));
+    fonts.local = [...fams].filter((f) => !fonts.mac.includes(f)).sort();
+    toast(`${fams.size} font families found on this Mac`);
+    renderProps();
+  } catch (e) { toast("The browser did not allow font access: " + e.message); }
+}
+
+// ---------------------------------------------------------------- design + history
+let design = { bg: "white", layers: [] };
+let selId = null;
+let history = [], hpos = -1;
+function snapshot() { return JSON.stringify(design); }
+function commit() {
+  const s = snapshot();
+  if (history[hpos] === s) return;
+  history = history.slice(0, hpos + 1); history.push(s);
+  if (history.length > 100) history.shift();
+  hpos = history.length - 1;
+  store.set("design", design);
+  updateUndo();
+}
+function updateUndo() { $("btnUndo").disabled = hpos <= 0; $("btnRedo").disabled = hpos >= history.length - 1; }
+function restore(s) { design = JSON.parse(s); if (!layerById(selId)) selId = null; if ((design.profile || DEFAULT_PROFILE) !== PROFILE.id) { applyProfile(design.profile || DEFAULT_PROFILE); profileMemo = null; } store.set("design", design); refreshAll(); updateUndo(); }
+function undo() { if (hpos > 0) restore(history[--hpos]); }
+function redo() { if (hpos < history.length - 1) restore(history[++hpos]); }
+function layerById(id) { return design.layers.find((l) => l.id === id); }
+function selected() { return layerById(selId); }
+// run fn as if the canvas were another screen type (no UI changes), e.g. to render for one tag
+function withProfile(pr, fn) {
+  const saved = PROFILE;
+  if (pr.id === saved.id) return fn();
+  PROFILE = pr; W = pr.w; H = pr.h; work.width = W; work.height = H;
+  try { return fn(); } finally { PROFILE = saved; W = saved.w; H = saved.h; work.width = W; work.height = H; }
+}
+// switch the canvas to a screen type (size and colours)
+function applyProfile(id) {
+  PROFILE = profileById(id); W = PROFILE.w; H = PROFILE.h;
+  sizeCanvases();
+  if (typeof applyZoom === "function" && $("zoomSeg")) {
+    const wrap = document.querySelector(".stage-wrap"), avail = wrap ? wrap.clientWidth - 90 : 0;
+    if (avail > 0 && W * zoom > avail) zoom = Math.max(1, Math.floor(avail / W));
+    applyZoom();
+  }
+  renderBgSeg();
+  const ps = $("profileSel"); if (ps) ps.value = PROFILE.id;
+  const pn = $("profileNote");
+  if (pn) pn.textContent = `${W} × ${H} pixels, ${hasAccent() ? "black, white and " + accentName().toLowerCase() : "black and white"}.${PROFILE.bpc ? "" : " Design and export only for now."}`;
+}
+function renderBgSeg() {
+  const sg = $("bgSeg"); if (!sg) return;
+  sg.innerHTML = "";
+  for (const [v, t] of colourChoices()) { const b = document.createElement("button"); b.dataset.v = v; b.textContent = t; sg.appendChild(b); }
+  let bgv = design.bg === "red" || design.bg === "yellow" ? "accent" : design.bg;
+  if (bgv === "accent" && !hasAccent()) bgv = "black";
+  [...sg.children].forEach((b) => b.classList.toggle("on", b.dataset.v === bgv));
+}
+// move and resize layers from one screen size to another
+function scaleLayers(layers, fw, fh, tw, th) {
+  if (fw === tw && fh === th) return layers;
+  const sx = tw / fw, sy = th / fh, R = Math.round;
+  const k = Math.abs(Math.log(sx)) <= Math.abs(Math.log(sy)) ? sx : sy; // the gentler of the two, so going back undoes it
+  const kText = Math.min(k, Math.max(sx, sy));
+  for (const l of layers) {
+    if (l.type === "line") { l.x = R(l.x * sx); l.y = R(l.y * sy); l.x2 = R(l.x2 * sx); l.y2 = R(l.y2 * sy); l.thickness = Math.max(1, R((l.thickness || 1) * k)); continue; }
+    if (l.type === "text") {
+      const m = textMetrics(l), cx = (l.x + m.w / 2) * sx, cy = (l.y + m.h / 2) * sy;
+      l.size = Math.max(4, R(l.size * kText));
+      const tf = tagFontOf(l); if (tf) l.size = tagScale(l, tf) * tf.size;
+      let m2 = textMetrics(l);
+      while (!tf && l.size > 6 && (m2.w > tw || m2.h > th)) { l.size = Math.max(6, R(l.size * 0.9)); m2 = textMetrics(l); }
+      l.x = R(Math.max(0, Math.min(tw - m2.w, cx - m2.w / 2))); l.y = R(Math.max(0, Math.min(th - m2.h, cy - m2.h / 2))); continue;
+    }
+    const full = l.type === "image" && l.x <= 0 && l.y <= 0 && l.x + l.w >= fw && l.y + l.h >= fh;
+    if (full || l.type === "box") { l.x = R(l.x * sx); l.y = R(l.y * sy); l.w = Math.max(1, R(l.w * sx)); l.h = Math.max(1, R(l.h * sy)); }
+    else {
+      const cx = (l.x + l.w / 2) * sx, cy = (l.y + l.h / 2) * sy, kk = Math.min(k, tw / l.w, th / l.h);
+      l.w = Math.max(1, R(l.w * kk)); l.h = Math.max(1, R(l.h * kk)); l.x = R(cx - l.w / 2); l.y = R(cy - l.h / 2);
+    }
+    if (l.type === "box") { l.border = l.border ? Math.max(1, R(l.border * k)) : 0; l.radius = R((l.radius || 0) * k); }
+  }
+  return layers;
+}
+// change the design's screen type, moving everything to fit
+let profileMemo = null; // undo the resize exactly when switching straight back
+function switchProfile(id, why) {
+  const to = profileById(id); if (to.id === design.profile) return;
+  const from = profileById(design.profile);
+  const before = JSON.stringify(design.layers);
+  if (profileMemo && profileMemo.after === before && profileMemo.w === to.w && profileMemo.h === to.h) design.layers = JSON.parse(profileMemo.before);
+  else scaleLayers(design.layers, from.w, from.h, to.w, to.h);
+  profileMemo = { before, after: JSON.stringify(design.layers), w: from.w, h: from.h };
+  design.profile = to.id; applyProfile(to.id); commit(); refreshAll();
+  if (why) toast(why, 4000);
+}
+function setDesign(d, keepHistory) {
+  design = { bg: ["black", "accent", "red", "yellow"].includes(d.bg) ? d.bg : "white", profile: profileById(d.profile || DEFAULT_PROFILE).id, layers: (d.layers || []).map((l) => ({ ...l, id: l.id || uid() })) };
+  applyProfile(design.profile);
+  selId = null; if (!keepHistory) { history = []; hpos = -1; }
+  commit(); refreshAll();
+}
+
+// ---------------------------------------------------------------- rendering to 1-bit
+const work = document.createElement("canvas"); work.width = W; work.height = H;
+function sizeCanvases() { work.width = W; work.height = H; const v = $("view"); if (v) { v.width = W; v.height = H; } }
+const wctx = work.getContext("2d", { willReadFrequently: true });
+const imgCache = new Map();
+function getImage(src) {
+  let e = imgCache.get(src);
+  if (!e) {
+    const im = new Image(); e = { im, ok: false }; imgCache.set(src, e);
+    im.onload = () => { e.ok = true; draw(); };
+    im.src = src;
+  }
+  return e.ok ? e.im : null;
+}
+function fontCss(l) { return `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.size}px "${l.font}", sans-serif`; }
+// ---- fields: {name}, {battery} ... filled in for each tag when sending
+const FIELDS = [
+  ["name", "Tag name", "ESL_8079EB"], ["battery", "Battery %", "87%"], ["volts", "Battery volts", "2.95 V"],
+  ["time", "Time", "14:05"], ["time24", "Time, 24-hour (like the tag clock)", "14:05"], ["date", "Date", "17 Nov 2026"], ["day", "Day of week", "Tuesday"],
+  ["short_date", "Short date", "17/11"], ["signal", "Bluetooth signal", "-52 dBm"], ["mac", "MAC address", "A0:40:FA:80:79:EB"],
+];
+let fieldCtx = null; // values used while rendering; null = preview values
+let custom = { fields: [], values: {} }; // your own fields, and each tag's values (saved in tag_fields.json)
+let previewId = null;
+const BUILTIN = new Set(FIELDS.map((f) => f[0]));
+function fieldValues(tag, when) {
+  const now = when || new Date(), v = {};
+  for (const [k, , sample] of FIELDS) v[k] = sample;
+  v.time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  v.time24 = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0");
+  v.date = now.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+  v.day = now.toLocaleDateString([], { weekday: "long" });
+  v.short_date = now.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
+  if (tag) {
+    v.name = tag.name;
+    v.battery = tag.battery != null ? tag.battery + "%" : "?%";
+    v.volts = tag.battery_mv ? (tag.battery_mv / 1000).toFixed(2) + " V" : "? V";
+    v.signal = tag.rssi != null ? tag.rssi + " dBm" : "?";
+    v.mac = tag.mac || "?";
+  }
+  for (const f of custom.fields) {
+    const val = tag && custom.values[tag.name] ? custom.values[tag.name][f] : undefined;
+    v[f] = val != null && val !== "" ? val : (when ? "" : `‹${f}›`); // preview shows a placeholder, sending leaves it empty
+  }
+  return v;
+}
+function previewTag() {
+  if (typeof tags === "undefined") return null;
+  if (previewId) { const t = tags.find((t) => t.id === previewId); if (t) return t; }
+  return ((tags.find((t) => t.kind === "port" && picked.has(t.id)) || tags.find((t) => t.kind === "port"))) || null;
+}
+function fillFields(text) {
+  const v = fieldCtx || fieldValues(previewTag());
+  return String(text || "").replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
+}
+function textLines(l) { return fillFields(l.text).split("\n"); }
+function textMetrics(l) {
+  const tf = tagFontOf(l);
+  if (tf) {
+    const k = tagScale(l, tf), lines = textLines(l), widths = lines.map((s) => tagLineWidth(tf, s, k));
+    const lh = Math.max(1, Math.round(tf.yAdvance * k * (l.lineHeight || 1)));
+    return { lines, widths, lh, w: Math.max(1, ...widths), h: Math.max(1, (lines.length - 1) * lh + (tf.ascent + tf.descent) * k), tag: tf, k };
+  }
+  wctx.font = fontCss(l);
+  const lines = textLines(l);
+  const widths = lines.map((s) => wctx.measureText(s).width);
+  const lh = l.size * (l.lineHeight || 1.15);
+  return { lines, widths, lh, w: Math.max(1, ...widths), h: Math.max(1, lines.length * lh) };
+}
+function rotOf(l) { return l.type === "line" ? 0 : ((+l.rotate || 0) % 360); }
+// the unrotated rectangle; rotation turns it about its centre
+function baseRect(l) {
+  if (l.type === "text") { const m = textMetrics(l); return { x: l.x, y: l.y, w: Math.ceil(m.w), h: Math.ceil(m.h) }; }
+  return { x: l.x, y: l.y, w: l.w, h: l.h };
+}
+function rotatedBox(r, deg) {
+  if (!deg) return r;
+  const a = deg * Math.PI / 180, c = Math.abs(Math.cos(a)), s = Math.abs(Math.sin(a));
+  const w = r.w * c + r.h * s, h = r.w * s + r.h * c, cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  return { x: cx - w / 2, y: cy - h / 2, w, h };
+}
+function withRotation(c, l, r) {
+  const deg = rotOf(l); if (!deg) return;
+  const cx = Math.round(r.x + r.w / 2), cy = Math.round(r.y + r.h / 2); // on the pixel grid, so quarter turns stay pixel-exact
+  c.translate(cx, cy); c.rotate(deg * Math.PI / 180); c.translate(-cx, -cy);
+}
+function bounds(l) {
+  if (l.type !== "line") return rotatedBox(baseRect(l), rotOf(l));
+  if (l.type === "text") { const m = textMetrics(l); return { x: l.x, y: l.y, w: Math.ceil(m.w), h: Math.ceil(m.h) }; }
+  if (l.type === "line") {
+    const t = (l.thickness || 1) / 2;
+    return { x: Math.min(l.x, l.x2) - t, y: Math.min(l.y, l.y2) - t, w: Math.abs(l.x2 - l.x) + 2 * t, h: Math.abs(l.y2 - l.y) + 2 * t };
+  }
+  return { x: l.x, y: l.y, w: l.w, h: l.h };
+}
+// paint a vector layer: draw it on the work canvas, then every pixel at least half covered takes the colour
+function paintVector(bits, drawFn, colour) {
+  wctx.clearRect(0, 0, W, H); wctx.save(); drawFn(wctx); wctx.restore();
+  const a = wctx.getImageData(0, 0, W, H).data;
+  for (let i = 0, p = 3; i < W * H; i++, p += 4) if (a[p] >= 128) bits[i] = colour;
+}
+function ditherGray(g, w, h, mode, thr) {
+  const out = new Uint8Array(w * h); // 1 = black
+  if (mode === "threshold") { for (let i = 0; i < w * h; i++) out[i] = g[i] < thr ? 1 : 0; return out; }
+  if (mode === "ordered") {
+    const B = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const t = (B[(y & 3) * 4 + (x & 3)] + 0.5) * 16 + (thr - 128);
+      out[y * w + x] = g[y * w + x] < t ? 1 : 0;
+    }
+    return out;
+  }
+  const f = Float32Array.from(g);
+  const spread = mode === "atkinson"
+    ? [[1, 0, 1 / 8], [2, 0, 1 / 8], [-1, 1, 1 / 8], [0, 1, 1 / 8], [1, 1, 1 / 8], [0, 2, 1 / 8]]
+    : [[1, 0, 7 / 16], [-1, 1, 3 / 16], [0, 1, 5 / 16], [1, 1, 1 / 16]];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, v = f[i], nv = v < thr ? 0 : 255, err = v - nv;
+    out[i] = nv ? 0 : 1;
+    for (const [dx, dy, k] of spread) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && xx < w && yy < h) f[yy * w + xx] += err * k;
+    }
+  }
+  return out;
+}
+function paintImage(bits, l) {
+  const im = getImage(l.src); if (!im) return;
+  const bw = Math.max(1, Math.round(l.w)), bh = Math.max(1, Math.round(l.h));
+  const deg = rotOf(l), bb = rotatedBox({ x: l.x, y: l.y, w: bw, h: bh }, deg);
+  const w = deg ? Math.max(1, Math.ceil(bb.w)) : bw, h = deg ? Math.max(1, Math.ceil(bb.h)) : bh;
+  const ox = deg ? Math.round(l.x + bw / 2 - w / 2) : Math.round(l.x), oy = deg ? Math.round(l.y + bh / 2 - h / 2) : Math.round(l.y);
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const cx = c.getContext("2d", { willReadFrequently: true });
+  cx.imageSmoothingQuality = "high";
+  cx.translate(w / 2, h / 2);
+  if (deg) cx.rotate(deg * Math.PI / 180);
+  cx.scale(l.flipX ? -1 : 1, l.flipY ? -1 : 1);
+  cx.drawImage(im, -bw / 2, -bh / 2, bw, bh);
+  const d = cx.getImageData(0, 0, w, h).data;
+  const con = 1 + (l.contrast || 0) / 100, bri = (l.brightness || 0) * 1.28;
+  const adj = (v) => Math.max(0, Math.min(255, (v - 128) * con + 128 + bri));
+  const alpha = new Uint8Array(w * h);
+  for (let i = 0, p = 3; i < w * h; i++, p += 4) alpha[i] = d[p];
+  const put = (x, y, v) => {
+    const tx = ox + x, ty = oy + y;
+    if (tx >= 0 && tx < W && ty >= 0 && ty < H) bits[ty * W + tx] = v;
+  };
+  const keep = (i) => alpha[i] >= 128 || (l.opaque && !deg);
+  // full colour: dither straight to the screen's colours (white, black, red or yellow)
+  if (l.colourDither && hasAccent()) {
+    const pal = [[255, 255, 255], [0, 0, 0], ACCENT[PROFILE.colours].rgb];
+    const f = new Float32Array(w * h * 3);
+    for (let i = 0, p = 0; i < w * h; i++, p += 4) for (let k = 0; k < 3; k++) {
+      const v = alpha[i] < 255 ? 255 - (255 - d[p + k]) * alpha[i] / 255 : d[p + k];
+      f[i * 3 + k] = adj(v);
+    }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x, r = f[i * 3], gg = f[i * 3 + 1], bb2 = f[i * 3 + 2];
+      let best = 0, bd = 1e9;
+      for (let k = 0; k < 3; k++) { const q = pal[k], dd = (r - q[0]) ** 2 * 0.3 + (gg - q[1]) ** 2 * 0.59 + (bb2 - q[2]) ** 2 * 0.11; if (dd < bd) { bd = dd; best = k; } }
+      if (l.dither !== "threshold") {
+        const e = [r - pal[best][0], gg - pal[best][1], bb2 - pal[best][2]];
+        for (const [dx, dy, k] of [[1, 0, 7 / 16], [-1, 1, 3 / 16], [0, 1, 5 / 16], [1, 1, 1 / 16]]) {
+          const xx = x + dx, yy = y + dy; if (xx < 0 || xx >= w || yy >= h) continue;
+          const j = (yy * w + xx) * 3; f[j] += e[0] * k; f[j + 1] += e[1] * k; f[j + 2] += e[2] * k;
+        }
+      }
+      if (!keep(i)) continue;
+      if (l.invert && best < 2) best ^= 1;
+      if (best === 0 && l.transparentWhite) continue;
+      put(x, y, best === 0 ? ci(l.paper || "white") : best === 1 ? ci(l.ink || "black") : 2);
+    }
+    return;
+  }
+  // two-colour art (the gallery's colour items): its red parts take their own colour
+  const accentSrc = new Uint8Array(w * h);
+  if (l.twoTone) for (let i = 0, p = 0; i < w * h; i++, p += 4) accentSrc[i] = d[p] >= 150 && d[p + 1] <= 120 && d[p + 2] <= 120 && alpha[i] >= 128 ? 1 : 0;
+  const g = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+    let v = 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+    if (accentSrc[i]) v = 0;
+    if (d[p + 3] < 255) v = 255 - (255 - v) * d[p + 3] / 255; // see-through parts count as white
+    g[i] = adj(v);
+  }
+  const b = ditherGray(g, w, h, l.dither || "floyd", l.threshold ?? 128);
+  const inkV = ci(l.ink || "black"), paperV = ci(l.paper || "white"), ink2V = ci(l.ink2 || "accent");
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (!keep(i)) continue;
+    if (accentSrc[i]) { put(x, y, ink2V); continue; }
+    const dark = b[i] ^ (l.invert ? 1 : 0);
+    if (!dark && l.transparentWhite) continue;
+    put(x, y, dark ? inkV : paperV);
+  }
+}
+function renderBits(d, ctx) {
+  fieldCtx = ctx || null;
+  try { return renderBitsNow(d); } finally { fieldCtx = null; }
+}
+function renderBitsNow(d) {
+  const bits = new Uint8Array(W * H).fill(ci(d.bg || "white"));
+  // layers[0] is the top, so paint from the end
+  for (let i = d.layers.length - 1; i >= 0; i--) {
+    const l = d.layers[i]; if (l.hidden) continue;
+    if (l.type === "text") {
+      const m = textMetrics(l);
+      paintVector(bits, (c) => {
+        withRotation(c, l, { x: l.x, y: l.y, w: m.w, h: m.h });
+        if (m.tag) {
+          c.fillStyle = "#000";
+          m.lines.forEach((s, k) => {
+            const dx = l.align === "center" ? Math.floor((m.w - m.widths[k]) / 2) : l.align === "right" ? m.w - m.widths[k] : 0;
+            drawTagLine(c, m.tag, s, Math.round(l.x + dx), Math.round(l.y) + k * m.lh + m.tag.ascent * m.k, m.k);
+          });
+          return;
+        }
+        c.font = fontCss(l); c.textBaseline = "top"; c.fillStyle = "#000";
+        m.lines.forEach((s, k) => {
+          const dx = l.align === "center" ? (m.w - m.widths[k]) / 2 : l.align === "right" ? m.w - m.widths[k] : 0;
+          c.fillText(s, Math.round(l.x + dx), Math.round(l.y + k * m.lh));
+        });
+      }, ci(l.color || "black"));
+    } else if (l.type === "box") {
+      const r = Math.min(l.radius || 0, l.w / 2, l.h / 2);
+      const path = (c, x, y, w, h, rr) => { c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, rr) : c.rect(x, y, w, h); };
+      const rr = { x: l.x, y: l.y, w: l.w, h: l.h };
+      if (l.fill && l.fill !== "none") paintVector(bits, (c) => { withRotation(c, l, rr); path(c, l.x, l.y, l.w, l.h, r); c.fill(); }, ci(l.fill));
+      if (l.border > 0) paintVector(bits, (c) => {
+        withRotation(c, l, rr);
+        const t = l.border; path(c, l.x + t / 2, l.y + t / 2, l.w - t, l.h - t, Math.max(0, r - t / 2));
+        c.lineWidth = t; c.stroke();
+      }, ci(l.borderColor || "black"));
+    } else if (l.type === "line") {
+      paintVector(bits, (c) => {
+        c.lineWidth = l.thickness || 1; c.lineCap = "square"; c.beginPath();
+        const o = (l.thickness || 1) % 2 ? 0.5 : 0;
+        c.moveTo(l.x + o, l.y + o); c.lineTo(l.x2 + o, l.y2 + o); c.stroke();
+      }, ci(l.color || "black"));
+    } else if (l.type === "image") paintImage(bits, l);
+  }
+  return bits;
+}
+// the tag's buffer: pixel (x, y) -> byte (w - 1 - x) * bpc + (y >> 3), bit 0x80 >> (y & 7), set = white.
+// The firmware has one black/white plane, so the third colour is sent as black for now.
+function encodeForTag(bits, opt, pr) {
+  pr = pr || PROFILE;
+  const w = pr.w, h = pr.h, bpc = pr.bpc || Math.ceil(h / 8);
+  const buf = new Uint8Array(w * bpc);
+  for (let x = 0; x < w; x++) for (let yb = 0; yb < bpc; yb++) {
+    let v = 0;
+    for (let k = 0; k < 8; k++) {
+      const y = yb * 8 + k;
+      let white = 1;
+      if (y < h) {
+        const sx = opt.flip ? w - 1 - x : x, sy = opt.flip ? h - 1 - y : y;
+        white = bits[sy * w + sx] ? 0 : 1;
+        if (opt.invert) white ^= 1;
+      }
+      if (white) v |= 0x80 >> k;
+    }
+    buf[(w - 1 - x) * bpc + yb] = v;
+  }
+  return buf;
+}
+const VIEW_RGB = [[0xe4, 0xe2, 0xd6], [0x1c, 0x1c, 0x1a]];
+function pixelRGB(v, pure) {
+  if (v === 2) return hasAccent() ? (pure ? ACCENT[PROFILE.colours].rgb : ACCENT[PROFILE.colours].view) : (pure ? [0, 0, 0] : VIEW_RGB[1]);
+  return pure ? (v ? [0, 0, 0] : [255, 255, 255]) : VIEW_RGB[v ? 1 : 0];
+}
+function b64(u8) { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+
+// ---------------------------------------------------------------- stage
+const view = $("view"), vctx = view.getContext("2d");
+let zoom = store.get("zoom", 3);
+let lastBits = null;
+function draw() {
+  lastBits = renderBits(design);
+  const im = vctx.createImageData(W, H);
+  for (let i = 0, p = 0; i < W * H; i++, p += 4) {
+    const c = pixelRGB(lastBits[i]);
+    im.data[p] = c[0]; im.data[p + 1] = c[1]; im.data[p + 2] = c[2]; im.data[p + 3] = 255;
+  }
+  vctx.putImageData(im, 0, 0);
+  drawSelection();
+}
+function applyZoom() {
+  view.style.width = W * zoom + "px"; view.style.height = H * zoom + "px";
+  [...$("zoomSeg").children].forEach((b) => b.classList.toggle("on", +b.dataset.v === zoom));
+  drawSelection();
+}
+function drawSelection() {
+  const l = selected(), box = $("selbox"), h = $("handle");
+  if (!l || l.hidden) { box.hidden = true; h.hidden = true; return; }
+  const b = bounds(l);
+  Object.assign(box.style, { left: b.x * zoom - 2 + "px", top: b.y * zoom - 2 + "px", width: b.w * zoom + 4 + "px", height: b.h * zoom + 4 + "px" });
+  box.hidden = false;
+  const hx = l.type === "line" ? l.x2 * zoom : (b.x + b.w) * zoom, hy = l.type === "line" ? l.y2 * zoom : (b.y + b.h) * zoom;
+  Object.assign(h.style, { left: hx - 6 + "px", top: hy - 6 + "px" });
+  h.hidden = false;
+}
+function hit(px, py) {
+  for (const l of design.layers) {
+    if (l.hidden) continue;
+    const b = bounds(l), pad = 3;
+    if (px >= b.x - pad && px <= b.x + b.w + pad && py >= b.y - pad && py <= b.y + b.h + pad) return l;
+  }
+  return null;
+}
+let drag = null;
+function stagePoint(e) { const r = view.getBoundingClientRect(); return { x: (e.clientX - r.left) / zoom, y: (e.clientY - r.top) / zoom }; }
+$("stage").addEventListener("dblclick", (e) => {
+  const p = stagePoint(e), l = hit(p.x, p.y);
+  if (l && l.type === "text") { select(l.id); focusTextBox(); }
+});
+$("stage").addEventListener("pointerdown", (e) => {
+  $("stage").focus();
+  const p = stagePoint(e);
+  if (e.target === $("handle")) {
+    const l = selected();
+    drag = { mode: "resize", l, p0: p, orig: { ...l }, b0: bounds(l) };
+  } else {
+    const l = hit(p.x, p.y);
+    select(l ? l.id : null);
+    if (l) drag = { mode: "move", l, p0: p, orig: { ...l } };
+  }
+  if (drag) $("stage").setPointerCapture(e.pointerId);
+});
+$("stage").addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const p = stagePoint(e), dx = Math.round(p.x - drag.p0.x), dy = Math.round(p.y - drag.p0.y), l = drag.l, o = drag.orig;
+  if (drag.mode === "move") {
+    l.x = o.x + dx; l.y = o.y + dy;
+    if (l.type === "line") { l.x2 = o.x2 + dx; l.y2 = o.y2 + dy; }
+  } else if (l.type === "line") { l.x2 = o.x2 + dx; l.y2 = o.y2 + dy; if (e.shiftKey) { if (Math.abs(l.x2 - l.x) > Math.abs(l.y2 - l.y)) l.y2 = l.y; else l.x2 = l.x; } }
+  else if (l.type === "text") {
+    const s = (drag.b0.h + dy) / drag.b0.h; l.size = Math.max(4, Math.round(o.size * s));
+  } else {
+    l.w = Math.max(2, o.w + dx); l.h = Math.max(2, o.h + dy);
+    if (l.type === "image" && !e.altKey) l.h = Math.max(2, Math.round(l.w * o.h / o.w));
+  }
+  draw(); renderProps(true);
+});
+$("stage").addEventListener("pointerup", () => { if (drag) { drag = null; commit(); renderLayers(); } });
+$("stage").addEventListener("keydown", (e) => {
+  const l = selected();
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === "d" && l) { e.preventDefault(); duplicate(); return; }
+  if (!l) return;
+  const step = e.shiftKey ? 10 : 1;
+  const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+  if (mv) {
+    e.preventDefault(); l.x += mv[0]; l.y += mv[1];
+    if (l.type === "line") { l.x2 += mv[0]; l.y2 += mv[1]; }
+    draw(); renderProps(true); clearTimeout(drag?.t); commitSoon();
+  } else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeLayer(l.id); }
+});
+let commitTimer = null;
+function commitSoon() { clearTimeout(commitTimer); commitTimer = setTimeout(commit, 400); }
+document.addEventListener("keydown", (e) => {
+  const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !inField) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+});
+// drop / paste pictures
+["dragenter", "dragover"].forEach((t) => $("stage").addEventListener(t, (e) => { e.preventDefault(); $("stage").classList.add("dragover"); }));
+["dragleave", "drop"].forEach((t) => $("stage").addEventListener(t, (e) => { e.preventDefault(); $("stage").classList.remove("dragover"); }));
+$("stage").addEventListener("drop", (e) => {
+  const f = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith("image/"));
+  if (f) addImageFile(f);
+  else {
+    const ff = [...(e.dataTransfer?.files || [])].find((f) => /\.(ttf|otf|woff2?)$/i.test(f.name));
+    if (ff) uploadFont(ff).then((fam) => toast(`Font "${fam}" added`)).catch((err) => toast(err.message));
+  }
+});
+document.addEventListener("paste", (e) => {
+  if (/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) return;
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+  if (item) { e.preventDefault(); addImageFile(item.getAsFile()); }
+});
+
+// ---------------------------------------------------------------- layers
+function labelOf(l) {
+  if (l.type === "text") return "T  " + (String(l.text).split("\n")[0] || "(empty)");
+  if (l.type === "image") return "▧  " + (l.name || "Picture");
+  if (l.type === "box") return "▭  Box";
+  return "╱  Line";
+}
+function renderLayers() {
+  const ul = $("layers"); ul.innerHTML = "";
+  if (!design.layers.length) { ul.innerHTML = '<li class="muted" style="cursor:default">Nothing yet. Add text or a picture.</li>'; return; }
+  design.layers.forEach((l, i) => {
+    const li = document.createElement("li");
+    li.className = (l.id === selId ? "sel " : "") + (l.hidden ? "hidden" : "");
+    li.innerHTML = `<span class="lname"></span>
+      <button title="Show/hide">${l.hidden ? "◌" : "●"}</button>
+      <button title="Move up" ${i === 0 ? "disabled" : ""}>▲</button>
+      <button title="Move down" ${i === design.layers.length - 1 ? "disabled" : ""}>▼</button>
+      <button title="Delete">✕</button>`;
+    li.querySelector(".lname").textContent = labelOf(l);
+    const [bh, bu, bd, bx] = li.querySelectorAll("button");
+    li.onclick = () => select(l.id);
+    bh.onclick = (e) => { e.stopPropagation(); l.hidden = !l.hidden; commit(); refreshAll(); };
+    bu.onclick = (e) => { e.stopPropagation(); move(i, -1); };
+    bd.onclick = (e) => { e.stopPropagation(); move(i, 1); };
+    bx.onclick = (e) => { e.stopPropagation(); removeLayer(l.id); };
+    ul.appendChild(li);
+  });
+}
+function move(i, d) { const L = design.layers, j = i + d; if (j < 0 || j >= L.length) return; [L[i], L[j]] = [L[j], L[i]]; commit(); refreshAll(); }
+function removeLayer(id) { design.layers = design.layers.filter((l) => l.id !== id); if (selId === id) selId = null; commit(); refreshAll(); }
+function duplicate() {
+  const l = selected(); if (!l) return;
+  const c = { ...JSON.parse(JSON.stringify(l)), id: uid(), x: l.x + 6, y: l.y + 6 };
+  if (c.type === "line") { c.x2 += 6; c.y2 += 6; }
+  design.layers.unshift(c); selId = c.id; commit(); refreshAll();
+}
+function addLayer(l) { l.id = uid(); design.layers.unshift(l); selId = l.id; commit(); refreshAll(); if (l.type === "text") focusTextBox(); else $("stage").focus(); }
+function focusTextBox() { const ta = $("textBox"); if (ta) { ta.focus(); ta.select(); } }
+function select(id) { selId = id; renderLayers(); renderProps(); drawSelection(); }
+function refreshAll() { draw(); renderLayers(); renderProps(); renderBgSeg(); }
+function defaultMacFont() { return fonts.mac.includes("Helvetica Neue") ? "Helvetica Neue" : (fonts.mac[0] || "sans-serif"); }
+function lastFont() { const f = store.get("lastFont", null); return f && !String(f).startsWith(TAG_PREFIX) ? f : (store.get("lastMacFont", null) || defaultMacFont()); }
+function newTextLayer() {
+  const l = { type: "text", text: "Your text", font: lastFont(), size: 32, bold: true, italic: false, align: "left", color: design.bg === "black" ? "white" : "black", lineHeight: 1.15, x: 12, y: 40 };
+  const f = store.get("lastFont", null);
+  if (f && String(f).startsWith(TAG_PREFIX) && tagFonts[f.slice(TAG_PREFIX.length)]) {
+    const tf = tagFonts[f.slice(TAG_PREFIX.length)];
+    Object.assign(l, { font: f, size: tf.size * (tf.size < 24 ? 2 : 1), bold: false, lineHeight: 1 });
+  }
+  return l;
+}
+
+$("addText").onclick = () => addLayer(newTextLayer());
+$("addBox").onclick = () => addLayer({ type: "box", x: 20, y: 20, w: 100, h: 50, fill: "none", border: 2, borderColor: design.bg === "black" ? "white" : "black", radius: 0 });
+$("addLine").onclick = () => addLayer({ type: "line", x: 10, y: 61, x2: 240, y2: 61, thickness: 2, color: design.bg === "black" ? "white" : "black" });
+$("addImage").onclick = () => $("imageFile").click();
+$("imageFile").onchange = (e) => { const f = e.target.files[0]; if (f) addImageFile(f); e.target.value = ""; };
+function addImageFile(file) {
+  const rd = new FileReader();
+  rd.onload = () => {
+    const im = new Image();
+    im.onload = () => {
+      // keep the design file small: store at most 600 px on the long side
+      const s = Math.min(1, 600 / Math.max(im.width, im.height));
+      const c = document.createElement("canvas"); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s);
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      const src = c.toDataURL("image/png");
+      const fit = Math.min(W / im.width, H / im.height);
+      const w = Math.max(2, Math.round(im.width * fit)), h = Math.max(2, Math.round(im.height * fit));
+      addLayer({ type: "image", name: file.name || "Pasted picture", src, x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), w, h, dither: "floyd", threshold: 128, brightness: 0, contrast: 0, invert: false, transparentWhite: false });
+    };
+    im.onerror = () => toast("That picture could not be read.");
+    im.src = rd.result;
+  };
+  rd.readAsDataURL(file);
+}
+{
+  const ps = $("profileSel");
+  for (const pr of PROFILES) { const o = document.createElement("option"); o.value = pr.id; o.textContent = pr.name + (pr.bpc ? "" : " (design only)"); ps.appendChild(o); }
+  ps.onchange = () => switchProfile(ps.value);
+}
+$("bgSeg").onclick = (e) => { const v = e.target.dataset?.v; if (v) { design.bg = v; commit(); refreshAll(); } };
+$("zoomSeg").onclick = (e) => { const v = +e.target.dataset?.v; if (v) { zoom = v; store.set("zoom", v); applyZoom(); } };
+
+// ---------------------------------------------------------------- gallery
+let galData = null, galCat = store.get("galCat", "backgrounds");
+const GAL_HINT = {
+  backgrounds: "Fills the whole tag and goes behind everything else.",
+  frames: "A border around the tag, placed on top. The middle stays clear.",
+  pictures: "Small pictures and signs. Drag to place, turn with Angle.",
+  twotone: "Two-colour backgrounds and pictures. Pick the colour of each part after adding (red or yellow on colour screens).",
+  mine: "Pictures you added. They are kept in the gallery/mine folder.",
+};
+async function loadGallery() {
+  try { galData = (await api("/api/gallery")).gallery; } catch (e) { galData = {}; toast("Could not load the gallery: " + e.message); }
+}
+async function openGallery(cat) {
+  if (cat) galCat = cat;
+  $("gallery").classList.add("open");
+  if (!galData) { $("galGrid").innerHTML = `<div class="gal-empty">Loading…</div>`; await loadGallery(); }
+  renderGallery();
+}
+function closeGallery() { $("gallery").classList.remove("open"); $("stage").focus(); }
+function galUrl(cat, file) { return "/gallery/" + cat + "/" + encodeURIComponent(file); }
+function renderGallery() {
+  store.set("galCat", galCat);
+  [...$("galTabs").children].forEach((b) => b.classList.toggle("on", b.dataset.c === galCat));
+  $("galHint").textContent = GAL_HINT[galCat] || "";
+  const g = $("galGrid"), wide = galCat === "backgrounds" || galCat === "frames";
+  const isWide = (it) => wide || (galCat === "twotone" && !/^pic_/.test(it.file));
+  g.style.setProperty("--gal-min", wide ? "190px" : "110px");
+  g.innerHTML = "";
+  let items = (galData && galData[galCat]) || [];
+  if (galCat === "twotone") items = [...items.filter(isWide), ...items.filter((it) => !isWide(it))];
+  if (!items.length) {
+    g.appendChild(el(`<div class="gal-empty">${galCat === "mine" ? "Nothing here yet. Press <b>Add your own…</b> to keep pictures you use often." : "Nothing in this folder."}</div>`));
+    return;
+  }
+  for (const it of items) {
+    const d = el(`<div class="gal-item${isWide(it) ? "" : " square"}" tabindex="0"><div class="thumb"><img alt="" loading="lazy"></div><div class="nm"></div></div>`);
+    d.querySelector("img").src = galUrl(galCat, it.file);
+    d.querySelector(".nm").textContent = it.name; d.title = it.name;
+    const use = () => { placeFromGallery(galCat, it); closeGallery(); };
+    d.onclick = use; d.onkeydown = (e) => { if (e.key === "Enter") use(); };
+    if (galCat === "mine") {
+      const x = el(`<button class="small del" title="Remove from my pictures">✕</button>`);
+      x.onclick = async (e) => {
+        e.stopPropagation();
+        try { await api("/api/gallery/mine/" + encodeURIComponent(it.file), { method: "DELETE" }); await loadGallery(); renderGallery(); }
+        catch (err) { toast("Could not remove it: " + err.message); }
+      };
+      d.appendChild(x);
+    }
+    g.appendChild(d);
+  }
+}
+function loadImage(src) {
+  return new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(im); im.onerror = bad; im.src = src; });
+}
+async function placeFromGallery(cat, it) {
+  const src = galUrl(cat, it.file);
+  let im; try { im = await loadImage(src); } catch (e) { toast("That picture could not be loaded."); return; }
+  const iw = im.naturalWidth || im.width || 100, ih = im.naturalHeight || im.height || 100;
+  const photo = cat === "mine" && !/\.svg$/i.test(it.file);
+  const base = { type: "image", name: it.name, src, dither: photo ? "floyd" : "threshold", threshold: 128, brightness: 0, contrast: 0, invert: false, transparentWhite: false, rotate: 0 };
+  if (cat === "twotone") Object.assign(base, { twoTone: true, ink: "black", ink2: "accent" });
+  if (cat === "twotone" && iw > ih * 1.5) cat = "backgrounds"; // the wide ones are backgrounds
+  if (cat === "backgrounds" || cat === "frames") {
+    const l = { ...base, x: 0, y: 0, w: W, h: H, id: uid() };
+    if (cat === "backgrounds") design.layers.push(l); else design.layers.unshift(l);
+    selId = l.id; commit(); refreshAll(); $("stage").focus();
+    toast(cat === "backgrounds" ? (base.twoTone ? `Background added behind everything. Change its colours on the right${hasAccent() ? "" : " (pick a colour screen under Screen to use red or yellow)"}.` : "Background added behind everything. Pick Dark parts or Swap dark and light to recolour it.") : "Frame added on top.");
+    return;
+  }
+  const box = cat === "mine" ? 110 : 60, s = Math.min(box / iw, box / ih, cat === "mine" ? Math.min(W / iw, H / ih) : 99);
+  const w = Math.max(2, Math.round(iw * s)), h = Math.max(2, Math.round(ih * s));
+  addLayer({ ...base, x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), w, h });
+}
+async function addToMine(files) {
+  let n = 0;
+  for (const f of files) {
+    const name = f.name.replace(/[^\w .()'&+,-]/g, "_").slice(-80);
+    try { await api("/api/gallery/mine/" + encodeURIComponent(name), { method: "POST", body: f }); n++; }
+    catch (e) { toast(`Could not add ${f.name}: ${e.message}`); }
+  }
+  await loadGallery(); galCat = "mine"; renderGallery();
+  if (n) toast(n === 1 ? "Added to My pictures." : `${n} pictures added to My pictures.`);
+}
+$("addGallery").onclick = () => openGallery();
+$("galClose").onclick = closeGallery;
+$("gallery").onclick = (e) => { if (e.target === $("gallery")) closeGallery(); };
+$("galTabs").onclick = (e) => { const c = e.target.dataset?.c; if (c) { galCat = c; renderGallery(); } };
+$("galAdd").onclick = () => $("galFile").click();
+$("galFile").onchange = (e) => { const fs = [...e.target.files]; e.target.value = ""; if (fs.length) addToMine(fs); };
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("gallery").classList.contains("open")) closeGallery(); });
+
+// ---------------------------------------------------------------- properties panel
+function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; }
+function num(label, key, l, opt = {}) {
+  const r = el(`<div class="row"><label>${label}</label><input type="number" step="${opt.step || 1}" ${opt.min != null ? `min="${opt.min}"` : ""}></div>`);
+  const inp = r.querySelector("input"); inp.value = l[key]; inp.dataset.key = key;
+  inp.oninput = () => { const v = parseFloat(inp.value); if (!isNaN(v)) { l[key] = v; draw(); } };
+  inp.onchange = () => { commit(); renderLayers(); };
+  return r;
+}
+function seg(label, key, l, options) {
+  const r = el(`<div class="row"><label>${label}</label><div class="seg"></div></div>`);
+  const s = r.querySelector(".seg");
+  for (const [v, t] of options) {
+    let cur = l[key] === "red" || l[key] === "yellow" ? "accent" : (l[key] ?? (key === "ink" ? "black" : key === "ink2" ? "accent" : undefined));
+    if (cur === "accent" && !hasAccent()) cur = "black";
+    const b = el(`<button></button>`); b.textContent = t; b.classList.toggle("on", cur === v);
+    b.onclick = () => { l[key] = v; commit(); refreshAll(); };
+    s.appendChild(b);
+  }
+  return r;
+}
+function pickRow(label, current, options, onPick) {
+  const r = el(`<div class="row"><label>${label}</label><div class="seg"></div></div>`);
+  const sg = r.querySelector(".seg");
+  for (const [v, t] of options) {
+    const b = el(`<button></button>`); b.textContent = t; b.classList.toggle("on", current === v);
+    b.onclick = () => { onPick(v); commit(); refreshAll(); };
+    sg.appendChild(b);
+  }
+  return r;
+}
+function check(label, key, l) {
+  const r = el(`<label class="check"><input type="checkbox"> <span></span></label>`);
+  r.querySelector("span").textContent = label;
+  const c = r.querySelector("input"); c.checked = !!l[key];
+  c.onchange = () => { l[key] = c.checked; commit(); refreshAll(); };
+  return r;
+}
+function slider(label, key, l, min, max) {
+  const r = el(`<div class="row"><label>${label}</label><input type="range" min="${min}" max="${max}"><span class="muted" style="width:30px;text-align:right"></span></div>`);
+  const inp = r.querySelector("input"), out = r.querySelector("span");
+  inp.value = l[key] ?? 0; out.textContent = inp.value;
+  inp.oninput = () => { l[key] = +inp.value; out.textContent = inp.value; draw(); };
+  inp.onchange = () => commit();
+  return r;
+}
+function rotateRow(l) {
+  const r = el(`<div class="row" style="flex-wrap:wrap"><label>Angle</label><input type="range" min="-180" max="180" step="1" style="flex:1;min-width:90px" title="Turn it to any angle"><input type="number" step="1" style="width:56px" data-key="rotate"><span class="muted">°</span>
+    <span style="flex-basis:100%;height:0"></span><label></label><button class="small" title="Turn left 15°">↺ 15°</button><button class="small" title="Turn right 15°">↻ 15°</button><button class="small" title="Turn left a quarter">↺ 90°</button><button class="small" title="Straighten">Straight</button></div>`);
+  const [rg, nb] = r.querySelectorAll("input"), [l15, r15, l90, z] = r.querySelectorAll("button");
+  const norm = (v) => { v = ((Math.round(v) % 360) + 540) % 360 - 180; return v === -180 ? 180 : v; };
+  const show = () => { rg.value = l.rotate || 0; nb.value = l.rotate || 0; };
+  const set = (v, done) => { l.rotate = norm(v); show(); draw(); if (done) { commit(); renderLayers(); } };
+  show();
+  rg.oninput = () => set(+rg.value); rg.onchange = () => commit();
+  nb.oninput = () => { const v = parseFloat(nb.value); if (!isNaN(v)) { l.rotate = norm(v); rg.value = l.rotate; draw(); } };
+  nb.onchange = () => { show(); commit(); };
+  l15.onclick = () => set((l.rotate || 0) - 15, 1); r15.onclick = () => set((l.rotate || 0) + 15, 1);
+  l90.onclick = () => set((l.rotate || 0) - 90, 1); z.onclick = () => set(0, 1);
+  return r;
+}
+function centerRow(l) {
+  const r = el(`<div class="row"><label>Center</label><button class="small">Across</button><button class="small">Up/down</button><button class="small">Both</button></div>`);
+  const [a, b, c] = r.querySelectorAll("button");
+  const go = (hx, vy) => {
+    const bb = bounds(l); let dx = 0, dy = 0;
+    if (hx) dx = Math.round((W - bb.w) / 2 - bb.x);
+    if (vy) dy = Math.round((H - bb.h) / 2 - bb.y);
+    l.x += dx; l.y += dy; if (l.type === "line") { l.x2 += dx; l.y2 += dy; }
+    commit(); refreshAll();
+  };
+  a.onclick = () => go(1, 0); b.onclick = () => go(0, 1); c.onclick = () => go(1, 1);
+  return r;
+}
+function fontSelect(l) {
+  const r = el(`<div class="row"><label>Font</label><select style="flex:1;min-width:0"></select></div>`);
+  const s = r.querySelector("select");
+  const group = (name, list) => {
+    if (!list.length) return;
+    const g = document.createElement("optgroup"); g.label = name;
+    for (const f of list) { const o = document.createElement("option"); o.value = f; o.textContent = f; o.style.fontFamily = `"${f}"`; g.appendChild(o); }
+    s.appendChild(g);
+  };
+  const tg = Object.keys(tagFonts);
+  if (tg.length) {
+    const g = document.createElement("optgroup"); g.label = "The tag's own fonts (pixel-exact)";
+    for (const id of tg) { const o = document.createElement("option"); o.value = TAG_PREFIX + id; o.textContent = "Tag · " + tagFonts[id].name; g.appendChild(o); }
+    s.appendChild(g);
+  }
+  group("Your added fonts", fonts.custom); group("Mac fonts", fonts.mac); group("All fonts on this Mac", fonts.local);
+  if (![...s.options].some((o) => o.value === l.font)) { const o = document.createElement("option"); o.value = l.font; o.textContent = l.font + " (not found)"; s.prepend(o); }
+  s.value = l.font;
+  s.onchange = () => {
+    const was = isTagFont(l); l.font = s.value; store.set("lastFont", s.value);
+    if (!s.value.startsWith(TAG_PREFIX)) store.set("lastMacFont", s.value);
+    const tf = tagFontOf(l);
+    if (tf) { l.size = tf.size; l.lineHeight = 1; l.bold = false; l.italic = false; }
+    else if (was) l.lineHeight = 1.15;
+    commit(); refreshAll();
+  };
+  return r;
+}
+function renderProps(valuesOnly) {
+  const p = $("props"), l = selected();
+  if (valuesOnly && l) { // during a drag: just refresh the number boxes
+    p.querySelectorAll("input[data-key]").forEach((i) => { if (document.activeElement !== i) i.value = l[i.dataset.key]; });
+    return;
+  }
+  p.innerHTML = "";
+  $("propsTitle").textContent = l ? ({ text: "Text", image: "Picture", box: "Box", line: "Line" })[l.type] : "Selected";
+  if (!l) { p.appendChild(el(`<div class="muted">Click something on the tag to change it, or add text or a picture on the left.</div>`)); return; }
+  if (l.type === "text") {
+    p.appendChild(el(`<label for="textBox" style="display:block;margin-bottom:4px">What it says (type here; Return starts a new line)</label>`));
+    const ta = el(`<textarea id="textBox" rows="3" placeholder="Type what the tag should say"></textarea>`); ta.value = l.text;
+    ta.oninput = () => { l.text = ta.value; draw(); renderLayers(); }; ta.onchange = () => commit();
+    p.appendChild(ta);
+    const fr0 = el(`<div class="row" style="margin-top:6px"><label>Insert</label><select style="flex:1;min-width:0"><option value="">Add a field…</option></select></div>`);
+    const fs = fr0.querySelector("select");
+    const vals = fieldValues(previewTag());
+    const g1 = document.createElement("optgroup"); g1.label = "About each tag"; fs.appendChild(g1);
+    for (const [k, label] of FIELDS) { const o = document.createElement("option"); o.value = k; o.textContent = `${label} (${vals[k]})`; g1.appendChild(o); }
+    const g2 = document.createElement("optgroup"); g2.label = "Your own fields (set per tag under Send to tags)"; fs.appendChild(g2);
+    for (const f of custom.fields) { const o = document.createElement("option"); o.value = f; o.textContent = `{${f}} (${vals[f]})`; g2.appendChild(o); }
+    { const o = document.createElement("option"); o.value = "__new"; o.textContent = "New field…"; g2.appendChild(o); }
+    fs.onchange = async () => {
+      if (fs.value === "__new") { const f = await newCustomField(); if (!f) { fs.value = ""; return; } fs.innerHTML = `<option value="${f}"></option>`; fs.value = f; }
+      if (!fs.value) return;
+      const tok = "{" + fs.value + "}", a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+      ta.value = ta.value.slice(0, a) + tok + ta.value.slice(b);
+      l.text = ta.value; commit(); draw(); renderLayers();
+      fs.value = ""; ta.focus(); ta.setSelectionRange(a + tok.length, a + tok.length);
+    };
+    p.appendChild(fr0);
+    p.appendChild(el(`<div class="muted" style="font-size:12px;margin:-2px 0 10px">Fields are filled in separately for each tag when you send, so every tag can show its own name, battery or your own values (like {room}). Time and date are the moment you press Send; to keep a live clock use Show clock.</div>`));
+    p.appendChild(fontSelect(l));
+    const fr = el(`<div class="row"><label></label><button class="small">Add font file…</button><button class="small">All my Mac fonts</button><input type="file" accept=".ttf,.otf,.woff,.woff2" hidden></div>`);
+    const [bf, bl] = fr.querySelectorAll("button"), fi = fr.querySelector("input");
+    bf.onclick = () => fi.click(); bl.onclick = loadLocalFonts;
+    fi.onchange = async () => {
+      const f = fi.files[0]; if (!f) return;
+      try { const fam = await uploadFont(f); l.font = fam; store.set("lastFont", fam); commit(); refreshAll(); toast(`Font "${fam}" added. It is kept in the fonts folder.`); }
+      catch (e) { toast("Could not add the font: " + e.message); }
+    };
+    p.appendChild(fr);
+    const tf = tagFontOf(l);
+    if (tf) {
+      p.appendChild(num("Size", "size", l, { min: tf.size, step: tf.size }));
+      const miss = tagMissing(l);
+      p.appendChild(el(`<div class="muted" style="font-size:12px;margin:-2px 0 8px">The same pixels the tag draws with (${tf.use}). Sizes go in whole steps: ${tf.size}, ${tf.size * 2}, ${tf.size * 3}…${miss.length ? ` <b>Not in this font, left out:</b> ${miss.map((c) => c === " " ? "space" : c.replace(/[<>&]/g, "")).join(" ")}` : ""}</div>`));
+    } else {
+      p.appendChild(num("Size", "size", l, { min: 4 }));
+      const st = el(`<div class="row"><label>Style</label></div>`);
+      st.appendChild(check("Bold", "bold", l)); st.appendChild(check("Italic", "italic", l));
+      p.appendChild(st);
+    }
+    p.appendChild(seg("Align", "align", l, [["left", "Left"], ["center", "Center"], ["right", "Right"]]));
+    p.appendChild(seg("Colour", "color", l, colourChoices()));
+    p.appendChild(num("Line gap", "lineHeight", l, { step: 0.05, min: 0.5 }));
+  }
+  if (l.type === "image") {
+    p.appendChild(seg("Shading", "dither", l, [["floyd", "Smooth"], ["atkinson", "Crisp"], ["ordered", "Pattern"], ["threshold", "None"]]));
+    p.appendChild(slider("Cut-off", "threshold", l, 1, 254));
+    p.appendChild(slider("Brightness", "brightness", l, -100, 100));
+    p.appendChild(slider("Contrast", "contrast", l, -100, 100));
+    if (hasAccent() && !l.twoTone) p.appendChild(check(`Full colour (uses ${accentName().toLowerCase()} for ${accentName().toLowerCase()} parts)`, "colourDither", l));
+    p.appendChild(seg("Dark parts", "ink", l, colourChoices()));
+    if (l.twoTone) p.appendChild(seg("Colour parts", "ink2", l, colourChoices()));
+    p.appendChild(pickRow("Light parts", l.transparentWhite ? "clear" : (l.paper || "white"), [["clear", "See-through"], ...colourChoices()], (v) => {
+      if (v === "clear") l.transparentWhite = true; else { l.transparentWhite = false; l.paper = v; }
+    }));
+    p.appendChild(check("Swap dark and light", "invert", l));
+    const fit = el(`<div class="row"><label>Size</label><button class="small">Fit tag</button><button class="small">Fill tag</button><button class="small">Original shape</button></div>`);
+    const [bfit, bfill, borig] = fit.querySelectorAll("button");
+    const im = getImage(l.src);
+    const setSize = (mode) => {
+      if (!im) return;
+      const ar = im.width / im.height;
+      if (mode === "orig") { l.h = Math.round(l.w / ar); }
+      else {
+        const s = mode === "fit" ? Math.min(W / im.width, H / im.height) : Math.max(W / im.width, H / im.height);
+        l.w = Math.round(im.width * s); l.h = Math.round(im.height * s); l.x = Math.round((W - l.w) / 2); l.y = Math.round((H - l.h) / 2);
+      }
+      commit(); refreshAll();
+    };
+    bfit.onclick = () => setSize("fit"); bfill.onclick = () => setSize("fill"); borig.onclick = () => setSize("orig");
+    p.appendChild(fit);
+  }
+  if (l.type === "box") {
+    p.appendChild(seg("Fill", "fill", l, colourChoices([["none", "None"]])));
+    p.appendChild(num("Border", "border", l, { min: 0 }));
+    p.appendChild(seg("Border", "borderColor", l, colourChoices()));
+    p.appendChild(num("Corners", "radius", l, { min: 0 }));
+  }
+  if (l.type === "line") {
+    p.appendChild(num("Thickness", "thickness", l, { min: 1 }));
+    p.appendChild(seg("Colour", "color", l, colourChoices()));
+    p.appendChild(num("End X", "x2", l)); p.appendChild(num("End Y", "y2", l));
+  }
+  if (l.type !== "line") p.appendChild(rotateRow(l));
+  if (l.type === "image") {
+    const fl = el(`<div class="row"><label>Flip</label></div>`);
+    fl.appendChild(check("Left-right", "flipX", l)); fl.appendChild(check("Upside down", "flipY", l));
+    p.appendChild(fl);
+  }
+  p.appendChild(num(l.type === "line" ? "Start X" : "X", "x", l)); p.appendChild(num(l.type === "line" ? "Start Y" : "Y", "y", l));
+  if (l.type === "image" || l.type === "box") { p.appendChild(num("Width", "w", l, { min: 1 })); p.appendChild(num("Height", "h", l, { min: 1 })); }
+  p.appendChild(centerRow(l));
+  const act = el(`<div class="row"><label></label><button class="small">Duplicate</button><button class="small">Delete</button></div>`);
+  const [bdup, bdel] = act.querySelectorAll("button");
+  bdup.onclick = duplicate; bdel.onclick = () => removeLayer(l.id);
+  p.appendChild(act);
+}
+
+// ---------------------------------------------------------------- templates, open, save, export
+const TEMPLATES = {
+  "Name badge": () => ({ bg: "white", layers: [
+    { type: "text", text: "Steve", font: lastFont(), size: 46, bold: true, align: "center", color: "black", lineHeight: 1.1, x: 0, y: 22, _center: true },
+    { type: "text", text: "Maker · Tinkerer", font: lastFont(), size: 16, bold: false, align: "center", color: "black", lineHeight: 1.1, x: 0, y: 82, _center: true },
+    { type: "box", x: 4, y: 4, w: 242, h: 114, fill: "none", border: 3, borderColor: "black", radius: 10 },
+  ] }),
+  "Price tag": () => ({ bg: "white", layers: [
+    { type: "text", text: "Fresh Coffee Beans", font: lastFont(), size: 18, bold: true, align: "left", color: "black", lineHeight: 1.1, x: 10, y: 8 },
+    { type: "text", text: "250 g · Medium roast", font: lastFont(), size: 13, bold: false, align: "left", color: "black", lineHeight: 1.1, x: 10, y: 30 },
+    { type: "line", x: 10, y: 50, x2: 239, y2: 50, thickness: 1, color: "black" },
+    { type: "text", text: "$8.99", font: lastFont(), size: 54, bold: true, align: "right", color: "white", lineHeight: 1, x: 0, y: 59, _right: 238 },
+    { type: "box", x: 112, y: 56, w: 134, h: 62, fill: "black", border: 0, borderColor: "black", radius: 8 },
+  ] }),
+  "Tag info": () => ({ bg: "white", layers: [
+    { type: "text", text: "{name}", font: lastFont(), size: 30, bold: true, align: "left", color: "black", lineHeight: 1, x: 8, y: 8 },
+    { type: "line", x: 8, y: 46, x2: 241, y2: 46, thickness: 2, color: "black" },
+    { type: "text", text: "Battery {battery}  ({volts})\nSignal {signal}\nUpdated {day} {time}", font: lastFont(), size: 15, bold: false, align: "left", color: "black", lineHeight: 1.25, x: 8, y: 56 },
+  ] }),
+  "Clock style": () => ({ bg: "white", layers: [
+    { type: "text", text: "{day}, {date}", font: lastFont(), size: 16, bold: false, align: "center", color: "black", lineHeight: 1, x: 0, y: 8, _center: true },
+    { type: "text", text: "{time}", font: lastFont(), size: 56, bold: true, align: "center", color: "black", lineHeight: 1, x: 0, y: 32, _center: true },
+    { type: "text", text: "{name} · battery {battery}", font: lastFont(), size: 13, bold: false, align: "center", color: "black", lineHeight: 1, x: 0, y: 100, _center: true },
+  ] }),
+  "Tag's own clock look": () => ({ bg: "white", layers: [
+    { type: "text", text: "{name}", font: "tag:Dialog_plain_16", size: 16, bold: false, italic: false, align: "left", color: "black", lineHeight: 1, x: 1, y: 4 },
+    { type: "text", text: "{time24}", font: "tag:DSEG14_Classic_Mini_Regular_40", size: 40, bold: false, italic: false, align: "center", color: "black", lineHeight: 1, x: 0, y: 25, _center: true },
+    { type: "text", text: "Battery {volts}", font: "tag:Dialog_plain_16", size: 16, bold: false, italic: false, align: "left", color: "black", lineHeight: 1, x: 10, y: 107 },
+  ] }),
+  "Big message": () => ({ bg: "black", layers: [
+    { type: "text", text: "Back in\n5 minutes", font: lastFont(), size: 40, bold: true, align: "center", color: "white", lineHeight: 1.05, x: 0, y: 0, _center: true, _middle: true },
+  ] }),
+};
+function placeTemplate(d) {
+  const TW = 250, TH = 122; // templates are laid out for a 250×122 screen
+  for (const l of d.layers) {
+    l.italic = l.italic || false;
+    if (l.type !== "text") continue;
+    const m = textMetrics(l);
+    if (l._center) l.x = Math.round((TW - m.w) / 2);
+    if (l._right) l.x = Math.round(l._right - m.w);
+    if (l._middle) l.y = Math.round((TH - m.h) / 2);
+    delete l._center; delete l._right; delete l._middle;
+  }
+  scaleLayers(d.layers, TW, TH, W, H);
+  d.profile = PROFILE.id;
+  return d;
+}
+function closeMenus() { document.querySelectorAll(".menu-list").forEach((m) => m.classList.remove("open")); }
+document.addEventListener("click", (e) => { if (!e.target.closest(".menu")) closeMenus(); });
+$("btnTemplates").onclick = () => {
+  const m = $("menuTemplates"), open = !m.classList.contains("open"); closeMenus(); if (!open) return;
+  m.innerHTML = "";
+  for (const name of Object.keys(TEMPLATES)) {
+    const it = el(`<div class="item"></div>`); it.textContent = name;
+    it.onclick = () => { closeMenus(); setDesign(placeTemplate(TEMPLATES[name]()), true); };
+    m.appendChild(it);
+  }
+  m.classList.add("open");
+};
+$("btnOpen").onclick = async () => {
+  const m = $("menuOpen"), open = !m.classList.contains("open"); closeMenus(); if (!open) return;
+  m.innerHTML = '<div class="empty">Loading…</div>'; m.classList.add("open");
+  try {
+    const { designs } = await api("/api/designs");
+    m.innerHTML = designs.length ? "" : '<div class="empty">No saved designs yet.</div>';
+    for (const name of designs) {
+      const it = el(`<div class="item"><span></span><button class="small" title="Delete this saved design">✕</button></div>`);
+      it.querySelector("span").textContent = name;
+      it.onclick = async () => { closeMenus(); try { setDesign(await api("/api/designs/" + encodeURIComponent(name)), true); store.set("designName", name); toast(`Opened "${name}"`); } catch (e) { toast(e.message); } };
+      it.querySelector("button").onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete the saved design "${name}"?`)) return;
+        await api("/api/designs/" + encodeURIComponent(name), { method: "DELETE" }); it.remove();
+      };
+      m.appendChild(it);
+    }
+  } catch (e) { m.innerHTML = `<div class="empty">${e.message}</div>`; }
+};
+$("btnSave").onclick = async () => {
+  const name = await askText("Save this design as:", store.get("designName", "My tag"));
+  if (!name) return;
+  try {
+    await api("/api/designs/" + encodeURIComponent(name.trim()), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(design) });
+    store.set("designName", name.trim()); toast(`Saved "${name.trim()}"`);
+  } catch (e) { toast("Not saved: " + e.message); }
+};
+$("btnNew").onclick = () => { if (design.layers.length && !confirm("Start a new, empty design? (Save first if you want to keep this one.)")) return; setDesign({ bg: "white", profile: design.profile, layers: [] }, true); };
+$("btnPng").onclick = () => {
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const cx = c.getContext("2d"), im = cx.createImageData(W, H), bits = renderBits(design);
+  for (let i = 0; i < W * H; i++) im.data.set([...pixelRGB(bits[i], true), 255], i * 4);
+  cx.putImageData(im, 0, 0);
+  const a = document.createElement("a"); a.href = c.toDataURL("image/png"); a.download = (store.get("designName", "tag") || "tag") + ".png"; a.click();
+};
+$("btnUndo").onclick = undo; $("btnRedo").onclick = redo;
+
+// ---------------------------------------------------------------- tags and sending
+let tags = [], picked = new Set(store.get("picked", [])), busy = false, jobView = {};
+const opts = store.get("tagOpts", { flip: false, invert: false });
+$("optFlip").checked = opts.flip; $("optInvert").checked = opts.invert;
+$("optFlip").onchange = $("optInvert").onchange = () => { opts.flip = $("optFlip").checked; opts.invert = $("optInvert").checked; store.set("tagOpts", opts); renderTags(); };
+function usable(t) { return t.kind === "port"; }
+// which screen each tag has: the firmware may report it later; until then you set it per tag (saved by tag name)
+let tagScreens = {};
+function tagProfile(t) {
+  const pr = profileById((t && (t.screen_type || tagScreens[t.name])) || DEFAULT_PROFILE);
+  return pr.bpc ? pr : profileById(DEFAULT_PROFILE);
+}
+// the design laid out for one tag's screen (resized when its screen differs from the canvas)
+function bitsForTag(t, d, ctx) {
+  const pr = tagProfile(t);
+  if (pr.w === W && pr.h === H) return withProfile(pr, () => renderBits(d, ctx));
+  const copy = JSON.parse(JSON.stringify(d));
+  scaleLayers(copy.layers, W, H, pr.w, pr.h);
+  return withProfile(pr, () => renderBits(copy, ctx));
+}
+async function saveTagScreens() {
+  try { tagScreens = await api("/api/tagscreens", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tagScreens) }); }
+  catch (e) { toast("Could not save the screen type: " + e.message); }
+}
+// the canvas follows the tags you pick: their screen size and colours
+function followPicked(quiet) {
+  const prs = [...new Set(chosen().map((id) => tagProfile(tags.find((t) => t.id === id)).id))].map(profileById);
+  if (!prs.length) return;
+  const sizes = new Set(prs.map((p) => p.w + "x" + p.h));
+  if (sizes.size > 1) { if (!quiet) toast("The tags you picked have different screen sizes. Sending goes to the ones matching the Screen setting under the design.", 5000); return; }
+  const target = prs.find((p) => hasAccent(p)) || prs[0];
+  if (target.id !== design.profile) switchProfile(target.id, quiet ? null : `Design switched to ${target.name} to match the tags you picked.`);
+}
+let lastTagKey = null;
+function renderTags() {
+  const key = tags.map((t) => t.id + t.name).join(",");
+  if (key !== lastTagKey) { lastTagKey = key; renderDetails(); renderPreviewAs(); }
+  const ul = $("tags"); ul.innerHTML = "";
+  if (!tags.length) ul.appendChild(el(`<li class="muted" style="font-size:12px">${busy === "scan" ? "Looking for tags (up to 25 seconds)…" : "No tags yet. Press Scan for tags. Each tag needs power and should be within a few metres."}</li>`));
+  for (const t of tags) {
+    const li = el(`<li><div class="tag-top"><input type="checkbox"><span class="tname"></span><span class="badge"></span></div><div class="tag-meta"></div></li>`);
+    const cb = li.querySelector("input");
+    cb.checked = usable(t) && picked.has(t.id); cb.disabled = !usable(t) || !!busy;
+    cb.onchange = () => { cb.checked ? picked.add(t.id) : picked.delete(t.id); store.set("picked", [...picked]); updateButtons(); if (cb.checked) followPicked(); };
+    li.querySelector(".tname").textContent = t.name;
+    li.querySelector(".badge").textContent = t.kind === "port" ? (t.keeps_picture === false ? "older firmware" : "ready") : t.kind === "stock" ? "original firmware" : "unknown";
+    const meta = li.querySelector(".tag-meta");
+    meta.appendChild(batteryView(t));
+    if (usable(t)) {
+      const ss = el(`<select class="scr" title="This tag's screen. The design follows the tags you pick."></select>`);
+      for (const pr of PROFILES.filter((p) => p.bpc)) { const o = document.createElement("option"); o.value = pr.id; o.textContent = pr.short; ss.appendChild(o); }
+      ss.value = tagProfile(t).id; ss.disabled = !!t.screen_type || !!busy;
+      ss.onchange = () => { tagScreens[t.name] = ss.value; saveTagScreens(); if (picked.has(t.id)) followPicked(); };
+      meta.appendChild(ss);
+    }
+    if (t.kind === "port") meta.appendChild(lockView(t));
+    if (t.rssi != null) { const sg = el(`<span></span>`); sg.textContent = `signal ${t.rssi} dBm`; sg.title = "Bluetooth signal: closer to 0 is stronger. Below about -85 sends can fail."; meta.appendChild(sg); }
+    let note = "";
+    if (t.kind === "stock") note = `Runs the original PickSmart firmware, which can't take designs. Put this project's firmware on it first: ./ota.sh --name ${t.name}`;
+    else if (t.kind !== "port") note = "Not one of the tags this app knows how to talk to.";
+    else if (t.keeps_picture === false) note = "Older version of the new firmware: pictures show, but its clock draws over them within a minute. Run ./ota.sh to update it.";
+    if (t.backed_up) note = (note ? note + " " : "") + "This is the tag your flash backup came from.";
+    if (note) { const n = el(`<div class="tag-note"></div>`); n.textContent = note; li.appendChild(n); }
+    li.appendChild(screenView(t));
+    const jv = jobView[t.id];
+    if (jv && (jv.message || jv.state === "working")) {
+      const s = el(`<div class="tag-status"></div>`); s.textContent = jv.message;
+      if (jv.state === "done") s.classList.add(/older firmware|can.t report/.test(jv.message) ? "warn" : "done");
+      if (jv.state === "failed") s.classList.add("failed");
+      li.appendChild(s);
+      if (jv.state === "working") { const b = el(`<div class="bar"><div></div></div>`); b.firstChild.style.width = jv.progress + "%"; li.appendChild(b); }
+    }
+    ul.appendChild(li);
+  }
+  updateButtons();
+}
+// password lock state, as last seen when the app connected to the tag
+function lockView(t) {
+  const st = t.lock === "open" ? "locked" : t.lock;
+  const v = el(`<span class="lockv"></span>`);
+  const txt = { locked: ["🔒 locked", "Locked with a password: only this app can change it."],
+    none: ["🔓 no password", "Anyone nearby with a Bluetooth app can change this tag. Tick it and use Password lock > Lock selected."],
+    unsupported: ["no lock (old firmware)", "This firmware has no password lock. Update it with ./ota.sh."] }[st]
+    || ["lock ?", "Not known yet: the app learns it the next time it connects (Read again or Send)."];
+  v.textContent = txt[0]; v.title = txt[1]; if (st) v.classList.add(st);
+  return v;
+}
+// battery gauge from the tag's advert (only this project's firmware reports it)
+function batteryView(t) {
+  const has = typeof t.battery === "number" && t.battery >= 0 && t.battery <= 100;
+  const lvl = !has ? "none" : t.battery < 20 ? "low" : t.battery < 50 ? "mid" : "ok";
+  const b = el(`<span class="batt ${lvl}"><span class="cell"><span class="fill"></span></span><span class="pct"></span><span class="v"></span></span>`);
+  b.querySelector(".fill").style.width = has ? `calc(${Math.max(4, t.battery)}% - 2px)` : "0";
+  b.querySelector(".pct").textContent = has ? `${t.battery}%` : "battery ?";
+  const mv = typeof t.battery_mv === "number" && t.battery_mv > 0 ? (t.battery_mv / 1000).toFixed(2) + " V" : "";
+  b.querySelector(".v").textContent = mv ? `${mv}${lvl === "low" ? " · low" : ""}` : (lvl === "low" ? "low" : "");
+  b.title = has ? `Battery ${t.battery}%${mv ? " (" + mv + ")" : ""}, as the tag last reported it.${lvl === "low" ? " Low: sending may fail, and the screen can fade. Consider a new coin cell." : ""}`
+    : t.kind === "stock" ? "The original firmware doesn't report its battery level." : "This tag didn't report a battery level.";
+  return b;
+}
+// what a tag's screen shows, from its 4000-byte buffer (same layout the tag uses)
+const SW = 250, SH = 122; // screen read-back is from this project's 250×122 tags
+function bufferToBits(b64str) {
+  const raw = atob(b64str), bits = new Uint8Array(SW * SH);
+  for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+    const sx = opts.flip ? SW - 1 - x : x, sy = opts.flip ? SH - 1 - y : y; // show it the way the glass does
+    let white = raw.charCodeAt((SW - 1 - sx) * 16 + (sy >> 3)) & (0x80 >> (sy & 7)) ? 1 : 0;
+    if (opts.invert) white ^= 1;
+    bits[y * SW + x] = white ? 0 : 1;
+  }
+  return bits;
+}
+function bitsCanvas(bits, light) {
+  const c = document.createElement("canvas"); c.width = SW; c.height = SH;
+  const cx = c.getContext("2d"), im = cx.createImageData(SW, SH);
+  for (let i = 0; i < SW * SH; i++) im.data.set(bits[i] ? [0x1c, 0x1c, 0x1a, 255] : (light ? [255, 255, 255, 255] : [0xe4, 0xe2, 0xd6, 255]), i * 4);
+  cx.putImageData(im, 0, 0);
+  return c;
+}
+function screenView(t) {
+  const box = el(`<div class="screen"></div>`);
+  if (t.kind === "stock") return box; // the note above already explains
+  { const pr = tagProfile(t); if (pr.w !== SW || pr.h !== SH) { box.appendChild(el(`<div class="cap">Screen preview works for 250×122 tags only.</div>`)); return box; } }
+  const sc = t.screen;
+  if (!sc) {
+    if (busy === "read" && jobView[t.id] && jobView[t.id].state !== "done") box.appendChild(el(`<div class="cap">Reading what is on its screen…</div>`));
+    return box;
+  }
+  box.appendChild(bitsCanvas(bufferToBits(sc.buffer)));
+  const when = (sc.time || "").slice(11);
+  const cap = el(`<div class="cap"></div>`);
+  cap.textContent = sc.source === "tag" ? `On its screen now (read from the tag at ${when})`
+    : `Last picture this app sent it (${when}). This tag's firmware can't report its screen, so it may show its clock instead.`;
+  box.appendChild(cap);
+  const acts = el(`<div class="acts"><button class="small">Read again</button><button class="small">Edit this</button></div>`);
+  const [bRead, bEdit] = acts.querySelectorAll("button");
+  bRead.disabled = !!busy;
+  bRead.onclick = () => runJob("/api/read", {}, "Read screen", [t.id], true);
+  bEdit.onclick = () => {
+    if (design.layers.length && !confirm(`Replace the current design with what ${t.name} shows? (Save first if you want to keep it.)`)) return;
+    const src = bitsCanvas(bufferToBits(sc.buffer), true).toDataURL("image/png");
+    setDesign({ bg: "white", profile: tagProfile(t).id, layers: [{ type: "image", name: t.name + " screen", src, x: 0, y: 0, w: SW, h: SH, dither: "threshold", threshold: 128, brightness: 0, contrast: 0, invert: false, transparentWhite: true }] }, true);
+    toast("Loaded. Add text or pictures on top, then send it.");
+  };
+  box.appendChild(acts);
+  return box;
+}
+// ---- your own fields: values per tag
+async function saveCustom() {
+  try { custom = await api("/api/tagfields", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(custom) }); }
+  catch (e) { toast("Could not save tag details: " + e.message); }
+}
+let saveCustomTimer = null;
+function saveCustomSoon() { clearTimeout(saveCustomTimer); saveCustomTimer = setTimeout(saveCustom, 500); }
+async function newCustomField() {
+  let f = await askText("Name for the new field, e.g. room, person, price (letters, numbers, _):", "");
+  if (!f) return null;
+  f = f.trim().replace(/[^\w]/g, "_");
+  if (!/^[A-Za-z]\w{0,23}$/.test(f)) { toast("Start with a letter; use letters, numbers and _ only."); return null; }
+  if (BUILTIN.has(f)) { toast(`{${f}} already exists.`); return f; }
+  if (!custom.fields.includes(f)) { custom.fields.push(f); await saveCustom(); renderDetails(); }
+  toast(`Added {${f}}. Fill in its value for each tag under "Send to tags".`, 4000);
+  return f;
+}
+function knownTagNames() {
+  const names = tags.filter((t) => t.kind === "port").map((t) => t.name);
+  for (const n of Object.keys(custom.values)) if (!names.includes(n)) names.push(n);
+  return names;
+}
+function renderDetails() {
+  const box = $("details"); box.innerHTML = "";
+  const head = el(`<div class="row" style="justify-content:space-between;margin:12px 0 6px"><span style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Your fields for each tag</span><button class="small">Add field</button></div>`);
+  head.querySelector("button").onclick = async () => { const f = await newCustomField(); if (f) { renderProps(); draw(); } };
+  box.appendChild(head);
+  if (!custom.fields.length) {
+    box.appendChild(el(`<div class="muted" style="font-size:12px">Add your own fields (for example {room} or {person}), give each tag its own value here, and use them in text. One design then shows something different on every tag.</div>`));
+    return;
+  }
+  const chips = el(`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px"></div>`);
+  for (const f of custom.fields) {
+    const c = el(`<span class="badge" style="display:inline-flex;gap:4px;align-items:center"></span>`);
+    c.textContent = "{" + f + "}";
+    const x = el(`<button class="small" style="padding:0 4px;border:none;background:none" title="Remove this field">✕</button>`);
+    x.onclick = async () => {
+      if (!confirm(`Remove the field {${f}} and its values on every tag?`)) return;
+      custom.fields = custom.fields.filter((g) => g !== f); await saveCustom(); renderDetails(); renderProps(); draw();
+    };
+    c.appendChild(x); chips.appendChild(c);
+  }
+  box.appendChild(chips);
+  const names = knownTagNames();
+  if (!names.length) { box.appendChild(el(`<div class="muted" style="font-size:12px">Scan for tags to fill in their values.</div>`)); return; }
+  for (const n of names) {
+    const card = el(`<div style="border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:6px"><div style="font-weight:600;font-size:13px;margin-bottom:4px"></div></div>`);
+    card.firstChild.textContent = n + (tags.some((t) => t.name === n) ? "" : " (not in range)");
+    for (const f of custom.fields) {
+      const r = el(`<div class="row" style="margin-bottom:4px"><label style="width:70px;overflow:hidden;text-overflow:ellipsis"></label><input type="text" style="flex:1;min-width:0"></div>`);
+      r.querySelector("label").textContent = f;
+      const inp = r.querySelector("input");
+      inp.value = (custom.values[n] || {})[f] || "";
+      inp.placeholder = "value for " + n;
+      inp.oninput = () => {
+        (custom.values[n] = custom.values[n] || {})[f] = inp.value;
+        saveCustomSoon();
+        const pt = previewTag(); if (pt && pt.name === n) draw();
+      };
+      card.appendChild(r);
+    }
+    box.appendChild(card);
+  }
+}
+function renderPreviewAs() {
+  const s = $("previewAs"), port = tags.filter((t) => t.kind === "port");
+  const cur = previewTag();
+  s.innerHTML = port.length ? "" : "<option>sample values</option>";
+  for (const t of port) { const o = document.createElement("option"); o.value = t.id; o.textContent = t.name; s.appendChild(o); }
+  if (cur) s.value = cur.id;
+}
+$("previewAs").onchange = () => { previewId = $("previewAs").value; draw(); renderProps(); };
+function chosen() { return tags.filter((t) => usable(t) && picked.has(t.id)).map((t) => t.id); }
+function updateButtons() {
+  if (design.layers.some((l) => l.type === "text" && /\{\w+\}/.test(l.text))) draw();
+  const n = chosen().length;
+  $("btnSend").disabled = !!busy || !n; $("btnClock").disabled = !!busy || !n; $("btnScan").disabled = !!busy; $("btnTest").disabled = !!busy || !n;
+  $("btnSend").textContent = n > 1 ? `Send to ${n} tags` : "Send to selected";
+  $("btnLock").disabled = !!busy || !n || !pwSet; $("btnUnlock").disabled = !!busy || !n || !pwSet;
+}
+$("btnAll").onclick = () => { const all = tags.filter(usable); const allOn = all.every((t) => picked.has(t.id)); all.forEach((t) => allOn ? picked.delete(t.id) : picked.add(t.id)); store.set("picked", [...picked]); renderTags(); if (!allOn) followPicked(); };
+async function scanTags() {
+  busy = "scan"; renderTags();
+  try {
+    const r = await api("/api/tags?scan=1"); tags = r.tags;
+    if (!tags.length) toast(r.heard
+      ? `Bluetooth works (it heard ${r.heard} other devices), but no tags answered. Check the tags have power and are near the Mac, then scan again.`
+      : "Bluetooth heard nothing at all. Check Bluetooth is on, and that Terminal is allowed under System Settings > Privacy & Security > Bluetooth.", 9000);
+  } catch (e) { toast("Scan failed: " + e.message); }
+  busy = false; renderTags();
+  // then show what each tag that can report it has on its screen
+  const readable = tags.filter((t) => t.kind === "port").map((t) => t.id);
+  if (readable.length) runJob("/api/read", {}, "Reading screens", readable, true);
+}
+$("btnScan").onclick = scanTags;
+async function runJob(path, body, label, ids, quiet) {
+  ids = ids || chosen(); if (!ids.length) return;
+  busy = path === "/api/read" ? "read" : "job"; jobView = {}; renderTags();
+  try {
+    let job = await api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, tags: ids }) });
+    while (true) {
+      for (const t of job.tags) jobView[t.id] = t;
+      renderTags();
+      if (job.done) break;
+      await new Promise((r) => setTimeout(r, 400));
+      job = await api("/api/jobs/" + job.id);
+    }
+    try { tags = (await api("/api/tags")).tags; } catch (e) {}
+    const ok = job.tags.filter((t) => t.state === "done").length;
+    if (quiet) { if (ok < job.tags.length) toast(`${label}: ${job.tags.length - ok} tag(s) did not answer. See the notes under each tag.`, 4000); }
+    else toast(ok === job.tags.length ? `${label}: done on ${ok === 1 ? "the tag" : "all " + ok + " tags"}` : `${label}: ${ok} of ${job.tags.length} worked. See the notes under each tag.`, 4000);
+  } catch (e) { toast(label + " failed: " + e.message, 4000); }
+  busy = false; renderTags();
+}
+$("btnSend").onclick = () => {
+  const when = new Date(), buffers = {}, resized = [];
+  for (const id of chosen()) {
+    const t = tags.find((x) => x.id === id), pr = tagProfile(t);
+    if (pr.w !== W || pr.h !== H) resized.push(t.name);
+    buffers[id] = b64(encodeForTag(bitsForTag(t, design, fieldValues(t, when)), opts, pr));
+  }
+  const notes = [];
+  if (resized.length) notes.push(`Resized for the different screen on ${resized.join(", ")}.`);
+  if (hasAccent() && lastBits && lastBits.includes(2)) notes.push(`${accentName()} parts show as black on the tags for now: the tag firmware can only show black and white yet.`);
+  const low = chosen().map((id) => tags.find((t) => t.id === id)).filter((t) => t && typeof t.battery === "number" && t.battery < 20);
+  if (low.length) notes.push(`Low battery on ${low.map((t) => `${t.name} (${t.battery}%)`).join(", ")}; it may need a retry.`);
+  if (notes.length) toast(notes.join(" "), 7000);
+  runJob("/api/send", { buffers }, "Send", Object.keys(buffers));
+};
+$("btnClock").onclick = () => runJob("/api/clock", {}, "Clock");
+// ---- password lock
+let pwSet = false;
+async function loadPassword() {
+  try { pwSet = !!(await api("/api/password")).set; } catch (e) {}
+  $("pwCur").style.display = pwSet ? "" : "none";
+  $("btnPw").textContent = pwSet ? "Change password" : "Save password";
+  $("lockInfo").textContent = pwSet
+    ? "This Mac has the app password. Tick tags and press Lock selected; the app unlocks them by itself whenever it sends."
+    : "Choose a password for your tags first. Use something you won't forget and nobody can guess.";
+  updateButtons();
+}
+$("btnPw").onclick = async () => {
+  const cur = $("pwCur").value, a = $("pwNew").value, b = $("pwNew2").value;
+  if (a.length < 10) return toast("Use at least 10 characters. A few unrelated words work well.");
+  if (a !== b) return toast("The two new passwords are different.");
+  try {
+    await api("/api/password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: a, current: cur }) });
+    $("pwCur").value = $("pwNew").value = $("pwNew2").value = "";
+    toast(pwSet ? "Password changed. Locked tags move to the new password the next time the app talks to them." : "Password saved in your Mac's Keychain. Now tick tags and press Lock selected.", 6000);
+    loadPassword();
+  } catch (e) { toast(e.message, 5000); }
+};
+$("btnLock").onclick = () => runJob("/api/lock", {}, "Lock");
+$("btnUnlock").onclick = () => {
+  if (!confirm("Remove the password from the ticked tags? Anyone nearby could then change them.")) return;
+  runJob("/api/unlock", {}, "Remove password");
+};
+$("btnTest").onclick = () => {
+  const t = placeTemplate({ bg: "white", layers: [
+    { type: "text", text: "TOP LEFT", font: "Helvetica", size: 14, bold: true, color: "black", lineHeight: 1, x: 3, y: 3 },
+    { type: "text", text: "bottom right", font: "Helvetica", size: 12, color: "black", lineHeight: 1, x: 0, y: 105, _right: 246 },
+    { type: "text", text: "Test 123", font: "Helvetica", size: 30, bold: true, color: "black", lineHeight: 1, x: 0, y: 0, _center: true, _middle: true },
+    { type: "box", x: 0, y: 0, w: 30, h: 122, fill: "black", border: 0 },
+    { type: "box", x: 0, y: 0, w: 250, h: 122, fill: "none", border: 1, borderColor: "black" },
+  ] });
+  t.layers[0].x = Math.round(34 * W / 250); // keep it off the black bar
+  const buffers = {};
+  for (const id of chosen()) { const tg = tags.find((x) => x.id === id); buffers[id] = b64(encodeForTag(bitsForTag(tg, t), opts, tagProfile(tg))); }
+  runJob("/api/send", { buffers }, "Test pattern", Object.keys(buffers));
+};
+
+// ---------------------------------------------------------------- start
+(async function start() {
+  fonts.mac = MAC_FONTS.filter(fontInstalled);
+  if (!fonts.mac.length) fonts.mac = ["sans-serif", "serif", "monospace"];
+  await Promise.all([loadCustomFonts(), loadTagFonts()]);
+  try { custom = await api("/api/tagfields"); } catch (e) {}
+  try { const r = await api("/api/tagscreens"); tagScreens = r && typeof r === "object" && !Array.isArray(r) ? r : {}; } catch (e) {}
+  const saved = store.get("design", null);
+  if (saved && saved.layers) setDesign(saved); else setDesign(placeTemplate(TEMPLATES["Name badge"]()));
+  applyZoom();
+  try { tags = (await api("/api/tags")).tags; } catch (e) {}
+  renderTags();
+  loadPassword();
+  if (!tags.length) scanTags();
+})();
+</script>
+</body>
+</html>

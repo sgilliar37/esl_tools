@@ -1,0 +1,38 @@
+[
+ {
+  "file": "retail_header_band.svg",
+  "name": "Header Band"
+ },
+ {
+  "file": "retail_sale_burst.svg",
+  "name": "Sale Burst"
+ },
+ {
+  "file": "retail_corner_ribbon.svg",
+  "name": "Corner Ribbon"
+ },
+ {
+  "file": "retail_price_panel.svg",
+  "name": "Price Panel"
+ },
+ {
+  "file": "retail_frame_tabs.svg",
+  "name": "Frame Tabs"
+ },
+ {
+  "file": "retail_footer_ticks.svg",
+  "name": "Footer Ticks"
+ },
+ {
+  "file": "retail_new_badge.svg",
+  "name": "New Badge"
+ },
+ {
+  "file": "retail_split_panel.svg",
+  "name": "Split Panel"
+ },
+ {
+  "file": "retail_hazard_border.svg",
+  "name": "Hazard Border"
+ }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "file": "home_name_badge.svg",
+    "name": "Name Badge"
+  },
+  {
+    "file": "home_meeting_room.svg",
+    "name": "Meeting Room"
+  },
+  {
+    "file": "home_bunting.svg",
+    "name": "Party Bunting"
+  },
+  {
+    "file": "home_hearts_border.svg",
+    "name": "Hearts Border"
+  },
+  {
+    "file": "home_dot_grid.svg",
+    "name": "Dot Grid Corner"
+  },
+  {
+    "file": "home_wave_footer.svg",
+    "name": "Wave Footer"
+  },
+  {
+    "file": "home_polka_dots.svg",
+    "name": "Polka Dots"
+  },
+  {
+    "file": "home_ticket.svg",
+    "name": "Ticket"
+  },
+  {
+    "file": "home_confetti.svg",
+    "name": "Confetti"
+  }
+]
