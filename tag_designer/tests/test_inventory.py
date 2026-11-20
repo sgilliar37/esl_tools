@@ -157,6 +157,7 @@ class Feed(BaseHTTPRequestHandler):
 class ApiTests(unittest.TestCase):
     def setUp(self):
         import server
+        server.LOG = os.devnull  # keep test errors out of the real log
         self.tmp = tempfile.mkdtemp()
         self.old = inventory.INVENTORY
         inventory.INVENTORY = os.path.join(self.tmp, "inventory.json")

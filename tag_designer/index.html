@@ -1978,7 +1978,12 @@ $("btnClock").onclick = () => runJob("/api/clock", {}, "Clock");
 // ---- inventory panel: load a product list, say which column is which, link tags to products
 function invTitle(p) { if (!p) return ""; const c = inv.map.title || inv.map.name || inv.key; return String(p[c] ?? p[inv.key] ?? ""); }
 async function invPost(what, body) {
-  inv = await api("/api/inventory/" + what, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  try {
+    inv = await api("/api/inventory/" + what, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  } catch (e) {
+    if (/^(not found|HTTP 404)$/.test(e.message)) throw new Error("Tag Designer is still running its older version. Close the Terminal window (or quit Tag Designer) and open it again.");
+    throw e;
+  }
   invIndex = null; barcodeCache.clear();
   renderInventory(); draw(); renderProps(); renderTags();
   return inv;
