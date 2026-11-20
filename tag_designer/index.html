@@ -75,6 +75,9 @@ h2:first-child { margin-top: 0; }
 .stage { position: relative; touch-action: none; outline: none; }
 .stage canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: default; }
 .selbox { position: absolute; border: 1.5px dashed var(--sel); pointer-events: none; }
+.stage canvas.grid-overlay { position: absolute; left: 0; top: 0; pointer-events: none; image-rendering: auto; }
+.tool-check { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--text); cursor: pointer; }
+.stage-tools select { font-size: 12px; }
 .handle { position: absolute; width: 11px; height: 11px; background: var(--sel); border: 2px solid #fff; border-radius: 3px; cursor: nwse-resize; }
 .stage-tools { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; flex-wrap: wrap; justify-content: center; }
 .hint { color: var(--muted); font-size: 12px; text-align: center; max-width: 640px; }
@@ -157,6 +160,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
     <div class="tag-body">
       <div class="stage" id="stage" tabindex="0">
         <canvas id="view" width="250" height="122"></canvas>
+        <canvas id="gridView" class="grid-overlay" aria-hidden="true"></canvas>
         <div class="selbox" id="selbox" hidden></div>
         <div class="handle" id="handle" hidden></div>
         <div class="drop-note">Drop the picture here</div>
@@ -165,11 +169,14 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-tr
     <div class="stage-tools">
       Zoom
       <div class="props"><div class="seg" id="zoomSeg"><button data-v="1">1×</button><button data-v="2">2×</button><button data-v="3">3×</button><button data-v="4">4×</button></div></div>
+      <label class="tool-check" title="Show a grid over the screen. It is only a guide and is never sent to the tag."><input type="checkbox" id="optGrid"> Grid</label>
+      <select id="gridSize" title="Grid spacing in pixels"><option value="2">2 px</option><option value="4">4 px</option><option value="5">5 px</option><option value="8">8 px</option><option value="10">10 px</option><option value="16">16 px</option><option value="20">20 px</option><option value="25">25 px</option></select>
+      <label class="tool-check" title="When moving or resizing, edges jump to the grid and items jump to the middle of the screen. Hold ⌘ while dragging to place freely."><input type="checkbox" id="optSnap"> Snap</label>
       <label style="display:flex;gap:6px;align-items:center;font-size:12px">Screen <select id="profileSel" title="The kind of screen you are designing for"></select></label>
       <span id="profileNote"></span>
       <label style="display:flex;gap:6px;align-items:center;font-size:12px">Preview as <select id="previewAs"></select></label>
     </div>
-    <div class="hint">Drag things to move them, drag the blue corner to resize. Arrow keys nudge by 1 pixel (Shift: 10). Drop or paste (⌘V) a picture to add it. ⌘D duplicates, Delete removes.</div>
+    <div class="hint">Drag things to move them, drag the blue corner to resize. With Snap on, edges jump to the grid and items jump to the middle of the screen (a pink line shows it); hold ⌘ to place freely. Arrow keys nudge by 1 pixel (Shift: 10, or one grid step with Snap on). Drop or paste (⌘V) a picture to add it. ⌘D duplicates, Delete removes.</div>
   </section>
 
   <aside class="right">
@@ -749,6 +756,9 @@ function b64(u8) { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += 
 // ---------------------------------------------------------------- stage
 const view = $("view"), vctx = view.getContext("2d");
 let zoom = store.get("zoom", 3);
+const GRID_SIZES = [2, 4, 5, 8, 10, 16, 20, 25];
+const grid = { show: !!store.get("gridShow", false), snap: !!store.get("gridSnap", false), size: store.get("gridSize", 10) };
+if (!GRID_SIZES.includes(grid.size)) grid.size = 10;
 let lastBits = null;
 function draw() {
   lastBits = renderBits(design);
@@ -759,12 +769,88 @@ function draw() {
   }
   vctx.putImageData(im, 0, 0);
   drawSelection();
+  drawGrid();
 }
 function applyZoom() {
   view.style.width = W * zoom + "px"; view.style.height = H * zoom + "px";
   [...$("zoomSeg").children].forEach((b) => b.classList.toggle("on", +b.dataset.v === zoom));
   drawSelection();
+  drawGrid();
 }
+// ---------------------------------------------------------------- grid and snapping (only a guide on screen, never sent)
+let guides = null; // { x, y }: the screen's middle lines to highlight while an item sits on them
+function drawGrid() {
+  const g = $("gridView"); if (!g) return;
+  const dpr = window.devicePixelRatio || 1, cw = W * zoom, ch = H * zoom;
+  const pw = Math.round(cw * dpr), ph = Math.round(ch * dpr);
+  if (g.width !== pw || g.height !== ph) { g.width = pw; g.height = ph; g.style.width = cw + "px"; g.style.height = ch + "px"; }
+  const c = g.getContext("2d");
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, pw, ph);
+  const at = (v) => Math.round(v * zoom * dpr) + 0.5; // a line between two screen pixels, kept crisp
+  const line = (x0, y0, x1, y1) => { c.moveTo(x0, y0); c.lineTo(x1, y1); };
+  if (grid.show) {
+    c.lineWidth = 1; c.strokeStyle = "rgba(47,91,211,.28)"; c.beginPath();
+    for (let x = grid.size; x < W; x += grid.size) line(at(x), 0, at(x), ph);
+    for (let y = grid.size; y < H; y += grid.size) line(0, at(y), pw, at(y));
+    c.stroke();
+    c.strokeStyle = "rgba(200,40,120,.5)"; c.setLineDash([4 * dpr, 3 * dpr]); c.beginPath();
+    line(at(W / 2), 0, at(W / 2), ph); line(0, at(H / 2), pw, at(H / 2));
+    c.stroke(); c.setLineDash([]);
+  }
+  if (guides && (guides.x != null || guides.y != null)) {
+    c.lineWidth = Math.max(1, Math.round(dpr)); c.strokeStyle = "rgba(220,30,110,.95)"; c.beginPath();
+    if (guides.x != null) line(at(guides.x), 0, at(guides.x), ph);
+    if (guides.y != null) line(0, at(guides.y), pw, at(guides.y));
+    c.stroke();
+  }
+}
+function snapActive(e) { return grid.snap && !(e && (e.metaKey || e.ctrlKey)); }
+const onGrid = (v) => Math.round(v / grid.size) * grid.size;
+// a line's pixels: square ends reach half the thickness past each end point (odd thickness sits half a pixel over)
+function lineReach(l) { const t = l.thickness || 1; return { lo: (t % 2 ? 0.5 : 0) - t / 2, hi: (t % 2 ? 0.5 : 0) + t / 2 }; }
+// the box to line up: the pixels a line really covers, everything else its outline on screen
+function snapBox(l) {
+  if (l.type === "line") {
+    const r = lineReach(l);
+    return { x: Math.min(l.x, l.x2) + r.lo, y: Math.min(l.y, l.y2) + r.lo, w: Math.abs(l.x2 - l.x) + r.hi - r.lo, h: Math.abs(l.y2 - l.y) + r.hi - r.lo };
+  }
+  return bounds(l);
+}
+// an edge position: the nearest grid line, or the screen's edge if that is nearer
+function snapEdge(v, full) {
+  let best = onGrid(v);
+  for (const e of [0, full]) if (Math.abs(e - v) < Math.abs(best - v)) best = e;
+  return best;
+}
+// how far to shift along one axis: to the screen's middle when close, else the nearest edge onto the grid or the screen's edge
+function snapAxis(pos, len, full) {
+  const tol = Math.max(1, Math.min(4, grid.size / 2));
+  const mid = Math.round((full - len) / 2 - pos);
+  if (Math.abs((full - len) / 2 - pos) <= tol) return { d: mid, centre: true };
+  let best = null;
+  for (const d of [onGrid(pos) - pos, onGrid(pos + len) - (pos + len), -pos, full - (pos + len)]) {
+    const r = Math.round(d);
+    if (best === null || Math.abs(r) < Math.abs(best)) best = r;
+  }
+  return { d: Math.abs(best) <= grid.size / 2 ? best : 0, centre: false };
+}
+function snapMove(l) {
+  const b = snapBox(l), ax = snapAxis(b.x, b.w, W), ay = snapAxis(b.y, b.h, H);
+  l.x += ax.d; l.y += ay.d;
+  if (l.type === "line") { l.x2 += ax.d; l.y2 += ay.d; }
+  guides = { x: ax.centre ? W / 2 : null, y: ay.centre ? H / 2 : null };
+}
+// a line's moving end: straight when close to the other end, the middle of the screen when close to it,
+// else the line's last pixel edge onto the grid (or the screen's edge)
+function snapLineEnd(v, other, full, l) {
+  const tol = Math.max(1, Math.min(4, grid.size / 2));
+  if (Math.abs(v - other) <= tol) return other;
+  if (Math.abs(v - full / 2) <= tol) return Math.round(full / 2);
+  const r = lineReach(l), lead = v > other ? r.hi : r.lo;
+  return Math.round(snapEdge(v + lead, full) - lead);
+}
+window.addEventListener("resize", () => drawGrid()); // also fires when the window moves to a screen with another pixel density
+function setGrid(k, v) { grid[k] = v; store.set({ show: "gridShow", snap: "gridSnap", size: "gridSize" }[k], v); drawGrid(); }
 function drawSelection() {
   const l = selected(), box = $("selbox"), h = $("handle");
   if (!l || l.hidden) { box.hidden = true; h.hidden = true; return; }
@@ -805,25 +891,36 @@ $("stage").addEventListener("pointerdown", (e) => {
 $("stage").addEventListener("pointermove", (e) => {
   if (!drag) return;
   const p = stagePoint(e), dx = Math.round(p.x - drag.p0.x), dy = Math.round(p.y - drag.p0.y), l = drag.l, o = drag.orig;
+  const snap = snapActive(e);
+  guides = null;
   if (drag.mode === "move") {
     l.x = o.x + dx; l.y = o.y + dy;
     if (l.type === "line") { l.x2 = o.x2 + dx; l.y2 = o.y2 + dy; }
-  } else if (l.type === "line") { l.x2 = o.x2 + dx; l.y2 = o.y2 + dy; if (e.shiftKey) { if (Math.abs(l.x2 - l.x) > Math.abs(l.y2 - l.y)) l.y2 = l.y; else l.x2 = l.x; } }
-  else if (l.type === "text") {
+    if (snap) snapMove(l);
+  } else if (l.type === "line") {
+    l.x2 = o.x2 + dx; l.y2 = o.y2 + dy;
+    if (snap) { l.x2 = snapLineEnd(l.x2, l.x, W, l); l.y2 = snapLineEnd(l.y2, l.y, H, l); }
+    if (e.shiftKey) { if (Math.abs(l.x2 - l.x) > Math.abs(l.y2 - l.y)) l.y2 = l.y; else l.x2 = l.x; }
+  } else if (l.type === "text") {
     const s = (drag.b0.h + dy) / drag.b0.h; l.size = Math.max(4, Math.round(o.size * s));
   } else {
     l.w = Math.max(2, o.w + dx); l.h = Math.max(2, o.h + dy);
+    if (snap && !rotOf(l)) { // right and bottom edges onto the grid
+      l.w = Math.max(2, snapEdge(l.x + l.w, W) - l.x);
+      l.h = Math.max(2, snapEdge(l.y + l.h, H) - l.y);
+    }
     if (l.type === "image" && !e.altKey) l.h = Math.max(2, Math.round(l.w * o.h / o.w));
   }
   draw(); renderProps(true);
 });
-$("stage").addEventListener("pointerup", () => { if (drag) { drag = null; commit(); renderLayers(); } });
+$("stage").addEventListener("pointerup", () => { if (drag) { drag = null; guides = null; drawGrid(); commit(); renderLayers(); } });
+$("stage").addEventListener("pointercancel", () => { if (drag) { drag = null; guides = null; drawGrid(); commit(); renderLayers(); } });
 $("stage").addEventListener("keydown", (e) => {
   const l = selected();
   const mod = e.metaKey || e.ctrlKey;
   if (mod && e.key.toLowerCase() === "d" && l) { e.preventDefault(); duplicate(); return; }
   if (!l) return;
-  const step = e.shiftKey ? 10 : 1;
+  const step = e.shiftKey ? (grid.snap ? grid.size : 10) : 1;
   const mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
   if (mv) {
     e.preventDefault(); l.x += mv[0]; l.y += mv[1];
@@ -936,6 +1033,10 @@ function addImageFile(file) {
   ps.onchange = () => switchProfile(ps.value);
 }
 $("bgSeg").onclick = (e) => { const v = e.target.dataset?.v; if (v) { design.bg = v; commit(); refreshAll(); } };
+$("optGrid").checked = grid.show; $("optSnap").checked = grid.snap; $("gridSize").value = String(grid.size);
+$("optGrid").onchange = (e) => setGrid("show", e.target.checked);
+$("optSnap").onchange = (e) => setGrid("snap", e.target.checked);
+$("gridSize").onchange = (e) => setGrid("size", +e.target.value);
 $("zoomSeg").onclick = (e) => { const v = +e.target.dataset?.v; if (v) { zoom = v; store.set("zoom", v); applyZoom(); } };
 
 // ---------------------------------------------------------------- gallery
