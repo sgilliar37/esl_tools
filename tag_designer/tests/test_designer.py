@@ -100,6 +100,23 @@ class DesignerTests(unittest.TestCase):
         self.assertEqual(job["tags"][0]["state"], "failed")
         self.assertIn("no password lock", job["tags"][0]["message"])
 
+    def test_layers_kept_per_tag(self):
+        import json
+        import tempfile
+        self.server.TAG_DESIGNS = os.path.join(tempfile.mkdtemp(), "tag_designs")
+        design = {"bg": "white", "layers": [{"type": "text", "text": "Room {name}", "x": 3, "y": 4}]}
+        ok, failing = self.by_name["ESL_8079EB"]["id"], self.by_name["NEMR62616005"]["id"]
+        self.wait(self.ble.new_job("send", [ok, failing], make_buffer(), design))
+        listing = self.server.tag_design_listing()
+        self.assertIn("ESL_8079EB", listing)
+        self.assertNotIn("NEMR62616005", listing)  # not sent, so nothing kept
+        with open(os.path.join(self.server.TAG_DESIGNS, "ESL_8079EB.json")) as f:
+            self.assertEqual(json.load(f)["design"], design)
+        # a test pattern (no design) leaves the kept layers alone
+        self.wait(self.ble.new_job("send", [ok], make_buffer()))
+        with open(os.path.join(self.server.TAG_DESIGNS, "ESL_8079EB.json")) as f:
+            self.assertEqual(json.load(f)["design"], design)
+
     def test_scan_kinds(self):
         self.assertEqual(self.by_name["ESL_8079EB"]["kind"], "port")
         self.assertEqual(self.by_name["ESL_8079EB"]["battery"], 87)
