@@ -1396,6 +1396,12 @@ function renderTags() {
       meta.appendChild(ss);
     }
     if (t.kind === "port") meta.appendChild(lockView(t));
+    if (tagDesigns[t.name]) {
+      const b = el(`<button class="small" title="Open the text, pictures, boxes and lines last sent to this tag, as editable layers">Edit layers</button>`);
+      b.disabled = !!busy;
+      b.onclick = () => openTagLayers(t);
+      meta.appendChild(b);
+    }
     if (t.rssi != null) { const sg = el(`<span></span>`); sg.textContent = `signal ${t.rssi} dBm`; sg.title = "Bluetooth signal: closer to 0 is stronger. Below about -85 sends can fail."; meta.appendChild(sg); }
     let note = "";
     if (t.kind === "stock") note = `Runs the original PickSmart firmware, which can't take designs. Put this project's firmware on it first: ./ota.sh --name ${t.name}`;
@@ -1415,6 +1421,19 @@ function renderTags() {
     ul.appendChild(li);
   }
   updateButtons();
+}
+// the layers last sent to each tag (kept on this Mac), so a tag's design can be edited later
+let tagDesigns = {};
+async function loadTagDesigns() {
+  try { tagDesigns = (await api("/api/tagdesigns")).designs || {}; } catch (e) {}
+}
+async function openTagLayers(t) {
+  if (design.layers.length && !confirm(`Replace the current design with the layers last sent to ${t.name} (${tagDesigns[t.name]})? Save first if you want to keep it.`)) return;
+  try {
+    const saved = await api("/api/tagdesigns/" + encodeURIComponent(t.name));
+    setDesign(saved.design, true);
+    toast(`Opened the layers sent to ${t.name} on ${saved.time}. Change what you like, then send it again.`, 5000);
+  } catch (e) { toast(e.message, 4000); }
 }
 // password lock state, as last seen when the app connected to the tag
 function lockView(t) {
@@ -1595,6 +1614,7 @@ async function runJob(path, body, label, ids, quiet) {
       job = await api("/api/jobs/" + job.id);
     }
     try { tags = (await api("/api/tags")).tags; } catch (e) {}
+    await loadTagDesigns();
     const ok = job.tags.filter((t) => t.state === "done").length;
     if (quiet) { if (ok < job.tags.length) toast(`${label}: ${job.tags.length - ok} tag(s) did not answer. See the notes under each tag.`, 4000); }
     else toast(ok === job.tags.length ? `${label}: done on ${ok === 1 ? "the tag" : "all " + ok + " tags"}` : `${label}: ${ok} of ${job.tags.length} worked. See the notes under each tag.`, 4000);
@@ -1614,7 +1634,7 @@ $("btnSend").onclick = () => {
   const low = chosen().map((id) => tags.find((t) => t.id === id)).filter((t) => t && typeof t.battery === "number" && t.battery < 20);
   if (low.length) notes.push(`Low battery on ${low.map((t) => `${t.name} (${t.battery}%)`).join(", ")}; it may need a retry.`);
   if (notes.length) toast(notes.join(" "), 7000);
-  runJob("/api/send", { buffers }, "Send", Object.keys(buffers));
+  runJob("/api/send", { buffers, design }, "Send", Object.keys(buffers));
 };
 $("btnClock").onclick = () => runJob("/api/clock", {}, "Clock");
 // ---- password lock
@@ -1679,6 +1699,7 @@ async function checkStale() {
   if (saved && saved.layers) setDesign(saved); else setDesign(placeTemplate(TEMPLATES["Name badge"]()));
   applyZoom();
   try { tags = (await api("/api/tags")).tags; } catch (e) {}
+  await loadTagDesigns();
   renderTags();
   loadPassword();
   checkStale(); setInterval(checkStale, 60000);

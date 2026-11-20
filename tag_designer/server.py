@@ -35,6 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ATC_PORT = os.path.join(HERE, "..", "atc_port")
 FONTS = os.path.join(HERE, "fonts")
 DESIGNS = os.path.join(HERE, "designs")
+TAG_DESIGNS = os.path.join(HERE, "tag_designs")  # the layers last sent to each tag: <tag name>.json
 LOG = os.path.join(HERE, "tag_designer.log")
 SCREENS = os.path.join(HERE, "screens.json")  # last known screen of each tag
 def _code_version():
@@ -145,8 +146,11 @@ class Bluetooth:
         return tags
 
     # ---- sending --------------------------------------------------------
-    def new_job(self, action, ids, data=None):
+    def new_job(self, action, ids, data=None, design=None):
         job = {"id": uuid.uuid4().hex[:10], "action": action, "done": False, "tags": []}
+        self.job_designs = getattr(self, "job_designs", {})
+        if design is not None:
+            self.job_designs[job["id"]] = design  # kept out of the job itself (polled every 0.4 s)
         for tid in ids:
             info = self.tags.get(tid, {"name": tid})
             job["tags"].append({"id": tid, "name": info.get("name", tid), "state": "waiting",
@@ -162,6 +166,9 @@ class Bluetooth:
                 for attempt in (1, 2):
                     try:
                         await self._one_tag(job["action"], entry, tag_data)
+                        design = self.job_designs.get(job["id"]) if hasattr(self, "job_designs") else None
+                        if design is not None and entry.get("state") == "done":
+                            save_tag_design(entry["name"], design)
                         break
                     except Exception as e:
                         reason = str(e) or type(e).__name__
@@ -173,6 +180,8 @@ class Bluetooth:
                             break
                         entry.update(message="Retrying (%s)" % reason, progress=0)
                         await asyncio.sleep(2)
+            if hasattr(self, "job_designs"):
+                self.job_designs.pop(job["id"], None)
             job["done"] = True
 
     def remember_screen(self, tid, buf, source):
@@ -319,6 +328,38 @@ class Bluetooth:
         entry["progress"] = span
 
 
+def save_tag_design(tag_name, design):
+    """Keep the layers sent to a tag, so they can be reopened and edited later."""
+    name = safe_name(tag_name)
+    if not name:
+        return
+    try:
+        os.makedirs(TAG_DESIGNS, exist_ok=True)
+        tmp = os.path.join(TAG_DESIGNS, name + ".json.tmp")
+        with open(tmp, "w") as f:
+            json.dump({"tag": tag_name, "time": time.strftime("%Y-%m-%d %H:%M"), "design": design}, f)
+        os.replace(tmp, os.path.join(TAG_DESIGNS, name + ".json"))
+    except OSError as e:
+        log("could not keep the layers for %s: %s" % (tag_name, e))
+
+
+def tag_design_listing():
+    """{tag name: time the layers were sent}"""
+    out = {}
+    try:
+        files = os.listdir(TAG_DESIGNS)
+    except OSError:
+        return out
+    for f in files:
+        if f.endswith(".json") and safe_name(f):
+            try:
+                with open(os.path.join(TAG_DESIGNS, f)) as fh:
+                    out[f[:-5]] = json.load(fh).get("time", "")
+            except (OSError, ValueError, AttributeError):
+                pass
+    return out
+
+
 class TagRefused(Exception):
     """A problem that retrying will not fix."""
 
@@ -452,6 +493,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(200, got if isinstance(got, dict) else {})
                 except (OSError, ValueError):
                     return self.reply(200, {})
+            if p == "/api/tagdesigns":
+                return self.reply(200, {"designs": tag_design_listing()})
+            if p.startswith("/api/tagdesigns/"):
+                name = safe_name(p[len("/api/tagdesigns/"):])
+                path = name and os.path.join(TAG_DESIGNS, name + ".json")
+                if not path or not os.path.isfile(path):
+                    return self.reply(404, {"error": "No saved layers for this tag yet."})
+                with open(path, "rb") as f:
+                    return self.reply(200, f.read())
             if p == "/api/tagfonts":
                 try:
                     with open(os.path.join(TAGFONTS, "index.json")) as f:
@@ -506,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
                 log("app password set")
                 return self.reply(200, {"set": True})
             if p in ("/api/send", "/api/clock", "/api/read", "/api/lock", "/api/unlock"):
-                req = json.loads(self.body() or b"{}")
+                req = json.loads(self.body(48 << 20) or b"{}")  # a design with pictures can be large
                 ids = [i for i in req.get("tags", []) if isinstance(i, str)]
                 if not ids:
                     return self.reply(400, {"error": "Pick at least one tag."})
@@ -522,7 +572,10 @@ class Handler(BaseHTTPRequestHandler):
                         pictures = [data]
                     if any(not 0 < len(d) <= MAX_PICTURE for d in pictures):
                         return self.reply(400, {"error": "picture must be 1 to %d bytes" % MAX_PICTURE})
-                job = self.ble.new_job(p.rsplit("/", 1)[1], ids, data)
+                design = req.get("design") if p == "/api/send" else None
+                if not (isinstance(design, dict) and isinstance(design.get("layers"), list)):
+                    design = None
+                job = self.ble.new_job(p.rsplit("/", 1)[1], ids, data, design)
                 return self.reply(200, job)
             if p == "/api/tagscreens":
                 req = json.loads(self.body(1 << 20) or b"{}")

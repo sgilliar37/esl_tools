@@ -41,6 +41,15 @@ At the top of the Font list, under *The tag's own fonts (pixel-exact)*, are the 
 - **Angle**: text, boxes and pictures can be turned to any angle (slider, number box, or the 15° / 90° buttons; *Straight* puts it back). Pictures can also be flipped left-right or upside down.
 - For a dark version of a background, select it and tick *Swap black and white*.
 
+## Editing a tag's design later
+
+Every time you send a design, Tag Designer keeps its layers (text, pictures, boxes,
+lines, in their order) for each tag it reached, in `tag_designs/` on this Mac. Each tag in
+the list then has an **Edit layers** button: it reopens exactly those layers, so you can
+change one word or move one picture and send it again, instead of starting over.
+Fields such as `{name}` stay as fields. The test pattern does not replace the kept layers.
+(**Edit this** under the screen preview still opens what the tag shows as one flat picture.)
+
 ## Password lock
 
 Without a password, anyone nearby with a free Bluetooth app can change a tag:
