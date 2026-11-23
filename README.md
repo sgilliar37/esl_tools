@@ -3,6 +3,9 @@
 Tools and firmware for PickSmart 2.13" electronic shelf labels (Telink TLSR8250/8258 with an
 ST7305 reflective LCD, 250×122, black/white).
 
+**Command-line manual:** [docs/CLI_MANUAL.md](docs/CLI_MANUAL.md) covers backing up, finding,
+updating, locking, wired flashing and rebuilding, step by step.
+
 | Folder | What it is |
 |---|---|
 | `tag_designer/` | Tag Designer: a Mac app (browser UI + Python/bleak server) to design screens and send them to many tags over Bluetooth, with the password lock UI. See its README. |
